@@ -1,0 +1,33 @@
+# Reference: https://build-cpp.github.io/cmkr/cmake-toml
+[cmake]
+version = "3.15"
+cmkr-include = "cmake/cmkr.cmake"
+
+[project]
+name = "shadowsyscall"
+languages = ["CXX"]
+
+[options]
+SHADOWSYSCALL_BUILD_TESTS = false
+
+[conditions]
+shadowsyscall-build-tests = "SHADOWSYSCALL_BUILD_TESTS"
+
+[target.shadowsyscall]
+type = "interface"
+include-directories = ["include/"]
+compile-features = ["cxx_std_20"]
+
+[fetch-content.GTest]
+git = "https://github.com/google/googletest"
+tag = "v1.15.2"
+shallow = true
+condition = "shadowsyscall-build-tests"
+
+[target.shadowsyscall-tests]
+type = "executable"
+condition = "shadowsyscall-build-tests"
+sources = ["tests/**.cpp"]
+include-directories = ["include/"]
+link-libraries = ["shadowsyscall", "GTest::gtest_main"]
+compile-features = ["cxx_std_20"]
