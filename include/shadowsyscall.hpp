@@ -34,8 +34,6 @@
 #include <string_view>
 #include <variant>
 
-#undef max // Win32 "utilities" ^_^
-
 namespace shadow {
 
     [[maybe_unused]] constexpr auto bitness = std::numeric_limits<uintptr_t>::digits;
@@ -1490,7 +1488,7 @@ namespace shadow {
 
                 // If the sum of bytes is not a multiple of 16, there
                 // will be a "tail" of remaining bytes, collect them.
-                m_result += append_tail( data, pos ) * std::numeric_limits<Ty>::max();
+                m_result += append_tail( data, pos ) * ( std::numeric_limits<Ty>::max )();
             }
 
             [[nodiscard]] Ty result() const noexcept {
