@@ -972,8 +972,10 @@ namespace shadow {
             }
 
             Ret operator()( Args... args ) {
+#if _HAS_EXCEPTIONS
                 if ( !m_invoker )
                     throw std::bad_function_call();
+#endif
                 return m_invoker( &m_storage, std::forward<Args>( args )... );
             }
 
@@ -2378,8 +2380,10 @@ namespace shadow {
         [[nodiscard]] Ty* allocate( std::size_t n ) const {
             std::size_t size = n * sizeof( Ty );
             void* ptr = virtual_alloc( nullptr, size, memory_commit | memory_reserve, page_rwx );
+#if _HAS_EXCEPTIONS
             if ( !ptr )
                 throw std::bad_alloc();
+#endif
             return static_cast<Ty*>( ptr );
         }
 
@@ -2510,7 +2514,7 @@ namespace shadow {
                                                   "Type should be fundamental" );
 
     public:
-        constexpr syscaller( hash64_t syscall_name ) noexcept
+        constexpr syscaller( hash64_t syscall_name ) noexcept( !_HAS_EXCEPTIONS )
             : m_name_hash( syscall_name ), m_service_number( 0 ), m_last_error( std::nullopt ),
               m_ssn_parser( [this]( [[maybe_unused]] syscaller& instance, address_t address ) {
                   return this->default_ssn_parser( address );
