@@ -1540,23 +1540,29 @@ namespace shadow {
             }
 
             [[nodiscard]] std::string_view name( std::size_t index ) const noexcept {
-                const auto rva_names = std::span{ m_module_base.offset<const std::uint32_t*>( m_export_table->rva_names ), m_export_table->num_names };
-                return { m_module_base.offset<const char*>( rva_names[index] ) };
+                const auto rva_names_ptr = m_module_base.offset( m_export_table->rva_names );
+                const auto rva_names_span = rva_names_ptr.span<const uint32_t>( m_export_table->num_names );
+                const auto export_name_ptr = m_module_base.offset<const char*>( rva_names_span[index] );
+                return { export_name_ptr };
             }
 
             [[nodiscard]] address_t address( std::size_t index ) const noexcept {
-                const auto rva_table = m_export_table->rva_table( m_module_base.raw() );
-                const auto ordinal_table = m_export_table->ordinal_table( m_module_base.raw() );
-                const auto ordinal = ordinal_table[index];
-                const auto rva_function = rva_table[ordinal];
+                const auto rva_table_ptr = m_export_table->rva_table( m_module_base.raw() );
+                const auto ordinal_table_ptr = m_export_table->ordinal_table( m_module_base.raw() );
+
+                const auto ordinal = ordinal_table_ptr[index];
+                const auto rva_function = rva_table_ptr[ordinal];
+
                 return m_module_base.offset( rva_function );
             }
 
             [[nodiscard]] bool is_export_forwarded( address_t export_address ) const noexcept {
                 const auto image = win::image_from_base( m_module_base.raw() );
                 const auto export_data_dir = image->get_optional_header()->data_directories.export_directory;
+
                 const auto export_table_start = m_module_base.offset( export_data_dir.rva );
                 const auto export_table_end = export_table_start.offset( export_data_dir.size );
+
                 return ( export_address >= export_table_start ) && ( export_address < export_table_end );
             }
 
@@ -1927,27 +1933,31 @@ namespace shadow {
                     return { 0, {} };
 
                 constexpr bool skip_current_module = true;
-                const auto loaded_modules = module_enumerator{ skip_current_module };
+                const auto process_modules = module_enumerator{ skip_current_module };
+                const bool is_module_specified = module_hash != 0;
 
-                for ( const auto& module : loaded_modules ) {
-                    if ( module_hash != 0 && !dynamic_link_library::compare_dll_names( module_hash, module.name().view() ) )
+                // Enumerate every module loaded to process
+                for ( const auto& module : process_modules ) {
+                    if ( is_module_specified && !dynamic_link_library::compare_dll_names( module_hash, module.name().view() ) )
                         continue;
 
                     export_enumerator exports{ module.base_address() };
 
-                    auto export_it = exports.find_if( [export_name]( const auto& pair ) -> bool {
+                    // Search for export by comparing hashed names
+                    const auto predicate_by_name = [export_name]( const auto& pair ) -> bool {
                         const auto& [name, address] = pair;
                         return export_name == hash64_t{}( name );
-                    } );
+                    };
 
-                    if ( export_it == exports.end() )
-                        continue;
+                    if ( auto export_it = exports.find_if( predicate_by_name ); export_it != exports.end() ) {
+                        const auto& [_, address] = *export_it;
 
-                    const auto& [_, address] = *export_it;
-                    if ( exports.is_export_forwarded( address ) )
-                        return handle_forwarded_export( address );
+                        // Learn more here: https://devblogs.microsoft.com/oldnewthing/20060719-24/?p=30473
+                        if ( exports.is_export_forwarded( address ) )
+                            return handle_forwarded_export( address );
 
-                    return { address, module };
+                        return { address, module };
+                    }
                 }
 
                 return { 0, {} };
@@ -2253,7 +2263,7 @@ namespace shadow {
             }
 
             void try_emplace( key_t export_hash, value_t address ) {
-                std::lock_guard lock( m_cache_mutex );
+                std::scoped_lock lock( m_cache_mutex );
                 m_cache_map.try_emplace( export_hash, address );
             }
 
@@ -2611,7 +2621,7 @@ namespace shadow {
         }
 
         [[nodiscard]] ResultTy result() const noexcept {
-            return static_cast<ResultTy>( *this );
+            return m_call_result;
         }
 
         operator ResultTy() const {
