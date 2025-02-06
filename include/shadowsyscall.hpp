@@ -2413,7 +2413,7 @@ namespace shadow {
             void* current_process{ reinterpret_cast<void*>( -1 ) };
             static address_t free_procedure{ dll_export( "NtFreeVirtualMemory", "ntdll.dll" ).address() };
 
-            if ( ( flags & 0xFFFF3FFC ) != 0 || ( flags & 0x8003 ) == 0x8000 && allocation_size )
+            if ( ( ( flags & 0xFFFF3FFC ) != 0 || ( flags & 0x8003 ) == 0x8000 ) && allocation_size )
                 result = -0x3FFFFFF3;
 
             result = free_procedure.execute<NTSTATUS>( current_process, &base_address, &region_size, flags );
