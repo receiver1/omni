@@ -67,7 +67,9 @@ if(SHADOWSYSCALL_BUILD_TESTS) # shadowsyscall-build-tests
 	set(shadowsyscall-tests_SOURCES
 		cmake.toml
 		"tests/address.cpp"
+		"tests/cache.cpp"
 		"tests/dll_export.cpp"
+		"tests/forwarded_exports.cpp"
 		"tests/shared_data.cpp"
 		"tests/syscaller.cpp"
 	)

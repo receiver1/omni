@@ -2249,27 +2249,42 @@ namespace shadow {
 
 #ifndef SHADOWSYSCALLS_DISABLE_CACHING
 
-        template <typename Ty, typename Kty>
+        template <typename ValueTy, typename KeyTy>
         class memory_cache {
         public:
-            using value_t = Ty;
-            using key_t = Kty;
+            using value_t = ValueTy;
+            using key_t = KeyTy;
 
-        public:
             value_t operator[]( key_t export_hash ) {
                 std::shared_lock lock( m_cache_mutex );
                 auto it = m_cache_map.find( export_hash );
                 return it == m_cache_map.end() ? value_t{} : it->second;
             }
 
-            void try_emplace( key_t export_hash, value_t address ) {
+            void emplace( key_t key, value_t value ) {
                 std::scoped_lock lock( m_cache_mutex );
-                m_cache_map.try_emplace( export_hash, address );
+                m_cache_map.emplace( key, value );
             }
 
-            bool exists( key_t export_hash ) {
+            bool try_emplace( key_t key, value_t value ) {
+                std::scoped_lock lock( m_cache_mutex );
+                const auto [_, was_emplaced] = m_cache_map.try_emplace( key, value );
+                return was_emplaced;
+            }
+
+            void erase( key_t key ) {
+                std::scoped_lock lock( m_cache_mutex );
+                m_cache_map.erase( key );
+            }
+
+            bool exists( key_t key ) {
                 std::shared_lock lock( m_cache_mutex );
-                return m_cache_map.find( export_hash ) != m_cache_map.end();
+                return m_cache_map.find( key ) != m_cache_map.end();
+            }
+
+            std::size_t size() const {
+                std::shared_lock lock( m_cache_mutex );
+                return m_cache_map.size();
             }
 
         private:
@@ -2278,8 +2293,8 @@ namespace shadow {
             std::unordered_map<key_t, value_t> m_cache_map{};
         };
 
-        static inline memory_cache<std::uint32_t, hash64_t::underlying_t> ssn_cache;
-        static inline memory_cache<detail::dll_export, hash64_t::underlying_t> address_cache;
+        inline memory_cache<std::uint32_t, hash64_t::underlying_t> ssn_cache;
+        inline memory_cache<detail::dll_export, hash64_t::underlying_t> address_cache;
 
 #endif
 
