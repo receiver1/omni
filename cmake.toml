@@ -1,6 +1,6 @@
 [cmake]
 version = "3.15"
-cmkr-include = "cmake/cmkr.cmake"
+cmkr-include = ".cmake/cmkr.cmake"
 
 [project]
 name = "shadowsyscall"
