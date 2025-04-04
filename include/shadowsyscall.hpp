@@ -1735,10 +1735,15 @@ namespace shadow {
 
     class module_enumerator {
      public:
-      module_enumerator(bool skip_current_module = false) {
+      explicit module_enumerator() {
         auto entry = &win::PEB::loader_data()->in_load_order_module_list;
-        m_begin = (skip_current_module ? entry->flink->flink : entry->flink);
+        m_begin = entry->flink;
         m_end = entry;
+      }
+
+      module_enumerator& skip_module() {
+        m_begin = m_begin->flink;
+        return *this;
       }
 
       class iterator {
@@ -1812,7 +1817,6 @@ namespace shadow {
       static_assert(std::bidirectional_iterator<iterator>);
 
       iterator begin() const noexcept { return iterator(m_begin); }
-
       iterator end() const noexcept { return iterator(m_end); }
 
       // \brief Find an export with user-defined predicate
@@ -1860,8 +1864,7 @@ namespace shadow {
         if (export_name == 0)
           return {0, {}};
 
-        constexpr bool skip_current_module = true;
-        const auto process_modules = module_enumerator{skip_current_module};
+        const auto process_modules = module_enumerator{}.skip_module();
         const bool is_module_specified = module_hash != 0;
 
         // Enumerate every module loaded to process
@@ -2274,8 +2277,7 @@ namespace shadow {
   }
 
   inline auto current_module() {
-    constexpr auto skip_current_module = false;
-    return *(detail::module_enumerator{skip_current_module}.begin());
+    return *(detail::module_enumerator{}.skip_module().begin());
   }
 
   inline auto dll_export(hash64_t export_name, hash64_t module_name = 0) {
@@ -2283,8 +2285,7 @@ namespace shadow {
   }
 
   inline auto dlls() {
-    constexpr auto skip_current_module = true;
-    return detail::module_enumerator{skip_current_module};
+    return detail::module_enumerator{}.skip_module();
   }
 
   inline auto dll_exports(hash64_t module_name) {
