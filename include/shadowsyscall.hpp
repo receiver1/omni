@@ -34,11 +34,7 @@
 #include <string_view>
 #include <variant>
 
-namespace shadow {
-
-  [[maybe_unused]] constexpr auto bitness = std::numeric_limits<uintptr_t>::digits;
-  [[maybe_unused]] constexpr auto is_x64 = bitness == 64;
-  [[maybe_unused]] constexpr auto is_x32 = bitness == 32;
+namespace shadow::concepts {
 
   template <typename Ty>
   concept arithmetic = std::is_arithmetic_v<Ty>;
@@ -46,16 +42,34 @@ namespace shadow {
   concept pointer = std::is_pointer_v<Ty>;
   template <typename Ty>
   concept nullpointer = std::is_null_pointer_v<Ty>;
+  template <typename Ty>
+  concept indexable_sizeable = requires(Ty t) {
+    { t.size() } -> std::convertible_to<std::size_t>;
+    { t[0] } -> std::convertible_to<typename Ty::value_type>;
+  };
+  template <typename Ty>
+  concept hashable = indexable_sizeable<Ty>;
+  template <typename Ty>
+  concept chrono_duration =
+      std::is_base_of_v<std::chrono::duration<typename Ty::rep, typename Ty::period>, Ty>;
+
+}  // namespace shadow::concepts
+
+namespace shadow {
+
+  [[maybe_unused]] constexpr auto bitness = std::numeric_limits<uintptr_t>::digits;
+  [[maybe_unused]] constexpr auto is_x64 = bitness == 64;
+  [[maybe_unused]] constexpr auto is_x32 = bitness == 32;
 
   class address_t {
    public:
     using underlying_t = std::uintptr_t;
 
     constexpr address_t() = default;
-    constexpr address_t(
-        nullpointer auto /* this way, we don't get the `ambiguous_condition` error */) noexcept {};
+    // this way, we don't get the `ambiguous_condition` error
+    constexpr address_t(concepts::nullpointer auto) noexcept {}
     constexpr address_t(underlying_t address) noexcept : m_address(address) {}
-    constexpr address_t(pointer auto address) noexcept
+    constexpr address_t(concepts::pointer auto address) noexcept
         : m_address(reinterpret_cast<underlying_t>(address)) {}
     constexpr address_t(std::ranges::contiguous_range auto range) noexcept
         : m_address(reinterpret_cast<underlying_t>(range.data())) {}
@@ -111,9 +125,7 @@ namespace shadow {
     }
 
     constexpr explicit operator std::uintptr_t() const noexcept { return m_address; }
-
     constexpr explicit operator bool() const noexcept { return static_cast<bool>(m_address); }
-
     constexpr auto operator<=>(const address_t&) const = default;
 
     constexpr address_t operator+=(const address_t& rhs) noexcept {
@@ -235,19 +247,18 @@ namespace shadow {
         // We will not use wcstombs_s because of the
         // dependency on the current locale.
 
-        const auto src = view();
-        const auto is_non_ascii = contains_non_ascii(src);
-        if (is_non_ascii) {
+        const auto source_str = view();
+        const auto has_non_ascii_symbols = contains_non_ascii(source_str);
+        if (has_non_ascii_symbols) {
           // Use std::filesystem::path as string converter
           return to_path().string();
         } else {
           // Otherwise, return string_view converted to std::string
-          return std::string(src.begin(), src.end());
+          return std::string(source_str.begin(), source_str.end());
         }
       }
 
       [[nodiscard]] auto data() const noexcept { return m_buffer; }
-
       [[nodiscard]] auto size() const noexcept { return m_length; }
 
      private:
@@ -955,12 +966,6 @@ namespace shadow {
       return hash;
     }
 
-    template <typename Ty>
-    concept ArrayLike = requires(Ty t) {
-      { t.size() } -> std::convertible_to<std::size_t>;          // Size methods required
-      { t[0] } -> std::convertible_to<typename Ty::value_type>;  // Should be accessable by index
-    };
-
     // basic_hash class provides compile-time and runtime hash
     // computation. Uses FNV-1a hashing algorithm.
     // Case-insensitive by default.
@@ -995,7 +1000,7 @@ namespace shadow {
      public:
       // Method for calculating hash at runtime. Accepts
       // any object with range properties.
-      template <ArrayLike Ty>
+      template <concepts::hashable Ty>
       [[nodiscard]] ValTy operator()(const Ty& object) {
         ValTy local_value = m_value;
         for (auto i = 0; i < object.size(); i++)
@@ -1940,19 +1945,12 @@ namespace shadow {
       }
 
       [[nodiscard]] auto is_windows_8_1() const { return verify_version_mask(6, 3); }
-
       [[nodiscard]] auto is_windows_8() const { return verify_version_mask(6, 2); }
-
       [[nodiscard]] auto is_windows_7() const { return verify_version_mask(6, 1); }
-
       [[nodiscard]] auto is_windows_xp() const { return verify_version_mask(6, 0); }
-
       [[nodiscard]] auto is_windows_vista() const { return verify_version_mask(5, 1); }
-
       [[nodiscard]] auto major_version() const { return m_major_version; }
-
       [[nodiscard]] auto minor_version() const { return m_minor_version; }
-
       [[nodiscard]] auto build_number() const { return m_build_number; }
 
       [[nodiscard]] auto formatted() const {
@@ -2050,10 +2048,6 @@ namespace shadow {
       std::int64_t m_timezone_offset;
     };
 
-    template <typename T>
-    concept ChronoDuration =
-        std::is_base_of_v<std::chrono::duration<typename T::rep, typename T::period>, T>;
-
     // shared_data parses kernel_user_shared_data filled
     // by the operating system when the process starts.
     // The structure contains a lot of useful information
@@ -2101,7 +2095,7 @@ namespace shadow {
 
       [[nodiscard]] auto timezone_id() const noexcept { return m_data->time_zone_id; }
 
-      template <ChronoDuration Ty>
+      template <concepts::chrono_duration Ty>
       [[nodiscard]] auto timezone_offset() const noexcept(std::is_nothrow_constructible_v<Ty>) {
         std::chrono::seconds seconds{parse_time_zone_bias()};
         return std::chrono::duration_cast<Ty>(seconds);
