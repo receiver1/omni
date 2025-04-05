@@ -1514,14 +1514,14 @@ namespace shadow {
 
       [[nodiscard]] const win::export_directory_t* table() const noexcept { return m_export_table; }
 
-      [[nodiscard]] std::string_view name(std::size_t index) const noexcept {
+      [[nodiscard]] auto name(std::size_t index) const noexcept {
         const auto rva_names_ptr = m_module_base.offset(m_export_table->rva_names);
         const auto rva_names_span = rva_names_ptr.span<const uint32_t>(m_export_table->num_names);
         const auto export_name_ptr = m_module_base.offset<const char*>(rva_names_span[index]);
-        return {export_name_ptr};
+        return std::string_view{export_name_ptr};
       }
 
-      [[nodiscard]] address_t address(std::size_t index) const noexcept {
+      [[nodiscard]] auto address(std::size_t index) const noexcept {
         const auto rva_table_ptr = m_export_table->rva_table(m_module_base.raw());
         const auto ordinal_table_ptr = m_export_table->ordinal_table(m_module_base.raw());
 
@@ -1531,7 +1531,7 @@ namespace shadow {
         return m_module_base.offset(rva_function);
       }
 
-      [[nodiscard]] bool is_export_forwarded(address_t export_address) const noexcept {
+      [[nodiscard]] auto is_export_forwarded(address_t export_address) const noexcept {
         const auto image = win::image_from_base(m_module_base.raw());
         const auto export_data_dir =
             image->get_optional_header()->data_directories.export_directory;
@@ -1558,7 +1558,7 @@ namespace shadow {
 
         iterator(const export_enumerator* exports, std::size_t index) noexcept
             : m_exports(exports), m_index(index), m_value() {
-          on_update();
+          update_value();
         }
 
         reference operator*() const noexcept { return m_value; }
@@ -1578,7 +1578,7 @@ namespace shadow {
             ++m_index;
 
             if (m_index < m_exports->size())
-              on_update();
+              update_value();
             else
               reset_value();
           } else {
@@ -1596,7 +1596,7 @@ namespace shadow {
         iterator& operator--() noexcept {
           if (m_index > 0) {
             --m_index;
-            on_update();
+            update_value();
           }
           return *this;
         }
@@ -1614,7 +1614,7 @@ namespace shadow {
         bool operator!=(const iterator& other) const noexcept { return !(*this == other); }
 
        private:
-        void on_update() noexcept {
+        void update_value() noexcept {
           if (m_index < m_exports->size())
             m_value = value_type{m_exports->name(m_index), m_exports->address(m_index)};
         }
@@ -1630,7 +1630,6 @@ namespace shadow {
       static_assert(std::bidirectional_iterator<iterator>);
 
       iterator begin() const noexcept { return iterator(this, 0); }
-
       iterator end() const noexcept { return iterator(this, size()); }
 
       // \brief Finds an export in the specified module.
