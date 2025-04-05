@@ -280,6 +280,10 @@ namespace shadow {
 
       [[nodiscard]] explicit operator bool() const noexcept { return m_buffer != nullptr; }
 
+      friend std::ostream& operator<<(std::ostream& os, const unicode_string& unicode_str) {
+        return os << unicode_str.string();
+      }
+
      private:
       [[nodiscard]] bool contains_non_ascii(const std::wstring_view str) const noexcept {
         return std::ranges::any_of(str, [](wchar_t ch) {
@@ -1754,6 +1758,10 @@ namespace shadow {
 
       [[nodiscard]] explicit operator bool() const noexcept { return present(); }
 
+      friend std::ostream& operator<<(std::ostream& os, const dynamic_link_library& dll) {
+        return os << dll.name();
+      }
+
      private:
       dynamic_link_library find(hash64_t module_name) const;
       win::loader_table_entry* m_data{nullptr};
@@ -1885,6 +1893,13 @@ namespace shadow {
 
       [[nodiscard]] explicit operator bool() const noexcept { return present(); }
       [[nodiscard]] explicit operator address_t() const noexcept { return address(); }
+
+      friend std::ostream& operator<<(std::ostream& os, const dll_export& exp) {
+        os << exp.address().ptr();
+        if (exp.location().name())
+          os << ':' << exp.location().name();
+        return os;
+      }
 
      private:
       struct export_with_location {
