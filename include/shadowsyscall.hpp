@@ -1065,19 +1065,18 @@ namespace shadow {
       destructor_ptr_t m_destroyer{nullptr};
     };
 
-    template <std::integral Ty>
-    consteval Ty generate_compilation_seed() {
-      Ty hash = __cplusplus;
+    constexpr uint64_t library_seed = []() consteval {
+      uint64_t hash = __cplusplus;
 
       // \note: Fix note since 27.08.2024:
       // We cannot use __TIME__ or alternatives here since
       // such macros represent the build time of a translation
       // unit, not the build time of the entire project.
       for (auto c : __FILE__)
-        hash ^= static_cast<Ty>(c) * 0x1928231;
+        hash ^= static_cast<uint64_t>(c) * 0x3281238589232841ull;
 
       return hash;
-    }
+    }();
 
     // basic_hash class provides compile-time and runtime hash
     // computation. Uses FNV-1a hashing algorithm.
@@ -1088,6 +1087,8 @@ namespace shadow {
       using underlying_t = ValTy;
       constexpr static bool case_sensitive = false;
       constexpr static ValTy FNV_prime = (sizeof(ValTy) == 4) ? 16777619u : 1099511628211ull;
+      constexpr static ValTy FNV_offset_basis =
+          (sizeof(ValTy) == 4) ? 2166136261u : 14695981039346656037ull;
 
      public:
       constexpr basic_hash(ValTy hash) : m_value(hash) {}
@@ -1102,12 +1103,12 @@ namespace shadow {
       consteval basic_hash(const CharT (&string)[N]) {
         constexpr auto string_length = N - 1;
         for (auto i = 0; i < string_length; i++)
-          m_value += fnv1a_append_bytes<>(m_value, string[i]);
+          m_value = fnv1a_append_bytes<>(m_value, string[i]);
       }
 
       consteval basic_hash(const char* string, std::size_t len) {
         for (auto i = 0; i < len; i++)
-          m_value += fnv1a_append_bytes<>(m_value, string[i]);
+          m_value = fnv1a_append_bytes<>(m_value, string[i]);
       }
 
      public:
@@ -1117,13 +1118,12 @@ namespace shadow {
       [[nodiscard]] ValTy operator()(const Ty& object) {
         ValTy local_value = m_value;
         for (auto i = 0; i < object.size(); i++)
-          local_value += fnv1a_append_bytes<>(local_value, object[i]);
+          local_value = fnv1a_append_bytes<>(local_value, object[i]);
         return local_value;
       }
 
       // \return Hash-value copy as an integral
       [[nodiscard]] constexpr ValTy raw() const { return m_value; }
-
       [[nodiscard]] constexpr explicit operator ValTy() const { return m_value; }
 
       constexpr auto operator<=>(const basic_hash&) const = default;
@@ -1148,7 +1148,7 @@ namespace shadow {
       }
 
      private:
-      ValTy m_value{generate_compilation_seed<ValTy>()};
+      ValTy m_value{FNV_offset_basis + static_cast<ValTy>(library_seed)};
     };
 
     using hash32_t = detail::basic_hash<uint32_t>;
