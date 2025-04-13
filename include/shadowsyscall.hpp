@@ -2775,7 +2775,7 @@ namespace shadow {
   }
 
   inline auto current_module() {
-    return *(detail::module_enumerator{}.skip_module().begin());
+    return *(detail::module_enumerator{}.begin());
   }
 
   inline auto dll_export(hash64_t export_name, hash64_t module_name = 0) {
