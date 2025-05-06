@@ -2106,6 +2106,12 @@ namespace shadow {
       // memory using the image_t structure from "linuxpe"
       [[nodiscard]] auto image() const noexcept { return win::image_from_base(m_data); }
 
+      // \return uint16_t - How many references the current
+      // DLL has at the moment
+      [[nodiscard]] auto reference_counter() const noexcept {
+        return loader_table_entry()->obsolete_load_count;
+      }
+
       // \return address_t - Base address of current DLL
       [[nodiscard]] auto base_address() const noexcept { return m_data->base_address; }
 
