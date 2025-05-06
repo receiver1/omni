@@ -1088,6 +1088,20 @@ namespace shadow {
 
   namespace detail {
 
+    template <typename Ty>
+    struct type_hash {
+      auto operator()(const Ty& instance) const noexcept {
+        return std::hash<typename Ty::underlying_t>()(instance.raw());
+      }
+    };
+
+    template <typename Ty>
+    struct type_format : std::formatter<typename Ty::underlying_t> {
+      auto format(const Ty& value, std::format_context& ctx) const {
+        return std::formatter<typename Ty::underlying_t>::format(value.raw(), ctx);
+      }
+    };
+
     template <typename Ret, typename... Args>
     class stack_function;
 
@@ -3273,26 +3287,21 @@ namespace shadow {
 
 }  // namespace shadow
 
-template <>
-struct std::hash<shadow::address_t> {
-  size_t operator()(const shadow::address_t& instance) const noexcept {
-    return std::hash<shadow::address_t::underlying_t>()(instance.raw());
-  }
-};
+namespace std {
+  template <>
+  struct hash<shadow::address_t> : shadow::detail::type_hash<shadow::address_t> {};
+  template <>
+  struct hash<shadow::hash32_t> : shadow::detail::type_hash<shadow::hash32_t> {};
+  template <>
+  struct hash<shadow::hash64_t> : shadow::detail::type_hash<shadow::hash64_t> {};
 
-template <>
-struct std::hash<shadow::hash32_t> {
-  size_t operator()(const shadow::hash32_t& instance) const noexcept {
-    return std::hash<shadow::hash32_t::underlying_t>()(instance.raw());
-  }
-};
-
-template <>
-struct std::hash<shadow::hash64_t> {
-  size_t operator()(const shadow::hash64_t& instance) const noexcept {
-    return std::hash<shadow::hash64_t::underlying_t>()(instance.raw());
-  }
-};
+  template <>
+  struct formatter<shadow::address_t> : shadow::detail::type_format<shadow::address_t> {};
+  template <>
+  struct formatter<shadow::hash32_t> : shadow::detail::type_format<shadow::hash32_t> {};
+  template <>
+  struct formatter<shadow::hash64_t> : shadow::detail::type_format<shadow::hash64_t> {};
+}  // namespace std
 
 template <typename Ty = long, class... Args>
   requires(shadow::is_x64)
