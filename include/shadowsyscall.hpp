@@ -1209,185 +1209,118 @@ namespace shadow {
       // \return returns cpu full name
       [[nodiscard]] std::string brand() const noexcept { return m_brand; }
 
+#define SUPPORTS(instruction_set_name, condition)                       \
+  [[nodiscard]] bool supports_##instruction_set_name() const noexcept { \
+    return condition;                                                   \
+  }
+
       // \return returns true if SSE (Streaming SIMD Extensions) is supported
-      [[nodiscard]] bool supports_sse() const noexcept { return m_standard_features_edx[25]; }
-
+      SUPPORTS(sse, m_standard_features_edx[25]);
       // \return returns true if SSE2 is supported by the CPU
-      [[nodiscard]] bool supports_sse2() const noexcept { return m_standard_features_edx[26]; }
-
+      SUPPORTS(sse2, m_standard_features_edx[26]);
       // \return returns true if SSE3 is supported by the CPU
-      [[nodiscard]] bool supports_sse3() const noexcept { return m_standard_features_ecx[0]; }
-
+      SUPPORTS(sse3, m_standard_features_ecx[0]);
       // \return returns true if SSSE3 is supported by the CPU
-      [[nodiscard]] bool supports_ssse3() const noexcept { return m_standard_features_ecx[9]; }
-
+      SUPPORTS(ssse3, m_standard_features_ecx[9]);
       // \return returns true if SSE4.1 is supported by the CPU
-      [[nodiscard]] bool supports_sse4_1() const noexcept { return m_standard_features_ecx[19]; }
-
+      SUPPORTS(sse4_1, m_standard_features_ecx[19]);
       // \return returns true if SSE4.2 is supported by the CPU
-      [[nodiscard]] bool supports_sse4_2() const noexcept { return m_standard_features_ecx[20]; }
+      SUPPORTS(sse4_2, m_standard_features_ecx[20]);
 
-      // AVX Instruction Set
       // \return returns true if AVX (Advanced Vector Extensions) is supported
-      [[nodiscard]] bool supports_avx() const noexcept { return m_standard_features_ecx[28]; }
-
+      SUPPORTS(avx, m_standard_features_ecx[28]);
       // \return returns true if AVX2 is supported by the CPU
-      [[nodiscard]] bool supports_avx2() const noexcept { return m_extended_features_ebx[5]; }
-
+      SUPPORTS(avx2, m_extended_features_ebx[5]);
       // \return returns true if AVX-512 Foundation is supported
-      [[nodiscard]] bool supports_avx512f() const noexcept { return m_extended_features_ebx[16]; }
-
+      SUPPORTS(avx512f, m_extended_features_ebx[16]);
       // \return returns true if AVX-512 Prefetch is supported
-      [[nodiscard]] bool supports_avx512pf() const noexcept { return m_extended_features_ebx[26]; }
-
+      SUPPORTS(avx512pf, m_extended_features_ebx[26]);
       // \return returns true if AVX-512 Exponential and Reciprocal is supported
-      [[nodiscard]] bool supports_avx512er() const noexcept { return m_extended_features_ebx[27]; }
-
+      SUPPORTS(avx512er, m_extended_features_ebx[27]);
       // \return returns true if AVX-512 Conflict Detection is supported
-      [[nodiscard]] bool supports_avx512cd() const noexcept { return m_extended_features_ebx[28]; }
+      SUPPORTS(avx512cd, m_extended_features_ebx[28]);
 
       // AMD-Specific Extensions
       // \return returns true if SSE4a is supported on AMD CPUs
-      [[nodiscard]] bool supports_sse4a() const noexcept {
-        return m_is_amd && m_amd_extended_features_ecx[6];
-      }
-
+      SUPPORTS(sse4a, m_is_amd&& m_amd_extended_features_ecx[6]);
       // \return returns true if LAHF/SAHF is supported in 64-bit mode
-      [[nodiscard]] bool supports_lahf() const noexcept { return m_amd_extended_features_ecx[0]; }
-
+      SUPPORTS(lahf, m_amd_extended_features_ecx[0]);
       // \return returns true if ABM (Advanced Bit Manipulation) is supported on AMD CPUs
-      [[nodiscard]] bool supports_abm() const noexcept {
-        return m_is_amd && m_amd_extended_features_ecx[5];
-      }
-
+      SUPPORTS(abm, m_is_amd&& m_amd_extended_features_ecx[5]);
       // \return returns true if XOP (Extended Operations) is supported on AMD CPUs
-      [[nodiscard]] bool supports_xop() const noexcept {
-        return m_is_amd && m_amd_extended_features_ecx[11];
-      }
-
+      SUPPORTS(xop, m_is_amd&& m_amd_extended_features_ecx[11]);
       // \return returns true if TBM (Trailing Bit Manipulation) is supported on AMD CPUs
-      [[nodiscard]] bool supports_tbm() const noexcept {
-        return m_is_amd && m_amd_extended_features_ecx[21];
-      }
-
+      SUPPORTS(tbm, m_is_amd&& m_amd_extended_features_ecx[21]);
       // \return returns true if MMX extensions are supported on AMD CPUs
-      [[nodiscard]] bool supports_mmxext() const noexcept {
-        return m_is_amd && m_amd_extended_features_edx[22];
-      }
+      SUPPORTS(mmxext, m_is_amd&& m_amd_extended_features_edx[22]);
 
       // Other Instruction Set Extensions
       // \return returns true if PCLMULQDQ (Carry-Less Multiplication) is supported
-      [[nodiscard]] bool supports_pclmulqdq() const noexcept { return m_standard_features_ecx[1]; }
-
+      SUPPORTS(pclmulqdq, m_standard_features_ecx[1]);
       // \return returns true if MONITOR/MWAIT instructions are supported
-      [[nodiscard]] bool supports_monitor() const noexcept { return m_standard_features_ecx[3]; }
-
+      SUPPORTS(monitor, m_standard_features_ecx[3]);
       // \return returns true if FMA (Fused Multiply-Add) is supported
-      [[nodiscard]] bool supports_fma() const noexcept { return m_standard_features_ecx[12]; }
-
+      SUPPORTS(fma, m_standard_features_ecx[12]);
       // \return returns true if CMPXCHG16B is supported by the CPU
-      [[nodiscard]] bool supports_cmpxchg16b() const noexcept {
-        return m_standard_features_ecx[13];
-      }
-
+      SUPPORTS(cmpxchg16b, m_standard_features_ecx[13]);
       // \return returns true if MOVBE (Move with Byte Swap) is supported
-      [[nodiscard]] bool supports_movbe() const noexcept { return m_standard_features_ecx[22]; }
-
+      SUPPORTS(movbe, m_standard_features_ecx[22]);
       // \return returns true if POPCNT (Population Count) instruction is supported
-      [[nodiscard]] bool supports_popcnt() const noexcept { return m_standard_features_ecx[23]; }
-
+      SUPPORTS(popcnt, m_standard_features_ecx[23]);
       // \return returns true if AES-NI (Advanced Encryption Standard) is supported
-      [[nodiscard]] bool supports_aes() const noexcept { return m_standard_features_ecx[25]; }
-
+      SUPPORTS(aes, m_standard_features_ecx[25]);
       // \return returns true if XSAVE/XRSTOR instructions are supported
-      [[nodiscard]] bool supports_xsave() const noexcept { return m_standard_features_ecx[26]; }
-
+      SUPPORTS(xsave, m_standard_features_ecx[26]);
       // \return returns true if OSXSAVE (Operating System XSave) is supported
-      [[nodiscard]] bool supports_osxsave() const noexcept { return m_standard_features_ecx[27]; }
-
+      SUPPORTS(osxsave, m_standard_features_ecx[27]);
       // \return returns true if RDRAND (Hardware Random Number Generator) is supported
-      [[nodiscard]] bool supports_rdrand() const noexcept { return m_standard_features_ecx[30]; }
-
+      SUPPORTS(rdrand, m_standard_features_ecx[30]);
       // \return returns true if F16C (16-bit Floating-Point Conversion) is supported
-      [[nodiscard]] bool supports_f16c() const noexcept { return m_standard_features_ecx[29]; }
-
-      // Miscellaneous Features
+      SUPPORTS(f16c, m_standard_features_ecx[29]);
       // \return returns true if MSR (Model-Specific Registers) are supported
-      [[nodiscard]] bool supports_msr() const noexcept { return m_standard_features_edx[5]; }
-
+      SUPPORTS(msr, m_standard_features_edx[5]);
       // \return returns true if CMPXCHG8 instruction is supported
-      [[nodiscard]] bool supports_cx8() const noexcept { return m_standard_features_edx[8]; }
-
+      SUPPORTS(cx8, m_standard_features_edx[8]);
       // \return returns true if SYSENTER/SYSEXIT instructions are supported
-      [[nodiscard]] bool supports_sep() const noexcept { return m_standard_features_edx[11]; }
-
+      SUPPORTS(sep, m_standard_features_edx[11]);
       // \return returns true if CMOV (Conditional Move) is supported
-      [[nodiscard]] bool supports_cmov() const noexcept { return m_standard_features_edx[15]; }
-
+      SUPPORTS(cmov, m_standard_features_edx[15]);
       // \return returns true if CLFLUSH (Cache Line Flush) instruction is supported
-      [[nodiscard]] bool supports_clflush() const noexcept { return m_standard_features_edx[19]; }
-
+      SUPPORTS(clflush, m_standard_features_edx[19]);
       // \return returns true if MMX (MultiMedia Extensions) is supported
-      [[nodiscard]] bool supports_mmx() const noexcept { return m_standard_features_edx[23]; }
-
+      SUPPORTS(mmx, m_standard_features_edx[23]);
       // \return returns true if FXSAVE/FXRSTOR instructions are supported
-      [[nodiscard]] bool supports_fxsr() const noexcept { return m_standard_features_edx[24]; }
-
-      // Extended Features
+      SUPPORTS(fxsr, m_standard_features_edx[24]);
       // \return returns true if FSGSBASE instructions are supported
-      [[nodiscard]] bool supports_fsgsbase() const noexcept { return m_extended_features_ebx[0]; }
-
+      SUPPORTS(fsgsbase, m_extended_features_ebx[0]);
       // \return returns true if BMI1 (Bit Manipulation Instructions Set 1) is supported
-      [[nodiscard]] bool supports_bmi1() const noexcept { return m_extended_features_ebx[3]; }
-
-      // \return returns true if HLE (Hardware Lock Elision) is supported on Intel CPUs
-      [[nodiscard]] bool supports_hle() const noexcept {
-        return m_is_intel && m_extended_features_ebx[4];
-      }
-
+      SUPPORTS(bmi1, m_extended_features_ebx[3]);
       // \return returns true if BMI2 (Bit Manipulation Instructions Set 2) is supported
-      [[nodiscard]] bool supports_bmi2() const noexcept { return m_extended_features_ebx[8]; }
-
+      SUPPORTS(bmi2, m_extended_features_ebx[8]);
+      // \return returns true if HLE (Hardware Lock Elision) is supported on Intel CPUs
+      SUPPORTS(hle, m_is_intel&& m_extended_features_ebx[4]);
       // \return returns true if Enhanced REP MOVSB/STOSB is supported
-      [[nodiscard]] bool supports_erms() const noexcept { return m_extended_features_ebx[9]; }
-
+      SUPPORTS(erms, m_extended_features_ebx[9]);
       // \return returns true if INVPCID (Invalidate Process-Context Identifier) is supported
-      [[nodiscard]] bool supports_invpcid() const noexcept { return m_extended_features_ebx[10]; }
-
+      SUPPORTS(invpcid, m_extended_features_ebx[10]);
       // \return returns true if RTM (Restricted Transactional Memory) is supported on Intel CPUs
-      [[nodiscard]] bool supports_rtm() const noexcept {
-        return m_is_intel && m_extended_features_ebx[11];
-      }
-
+      SUPPORTS(rtm, m_is_intel&& m_extended_features_ebx[11]);
       // \return returns true if RDSEED (Random Seed) instruction is supported
-      [[nodiscard]] bool supports_rdseed() const noexcept { return m_extended_features_ebx[18]; }
-
+      SUPPORTS(rdseed, m_extended_features_ebx[18]);
       // \return returns true if ADX (Multi-Precision Add-Carry Instruction Extensions) is supported
-      [[nodiscard]] bool supports_adx() const noexcept { return m_extended_features_ebx[19]; }
-
+      SUPPORTS(adx, m_extended_features_ebx[19]);
       // \return returns true if SHA (Secure Hash Algorithm) instructions are supported
-      [[nodiscard]] bool supports_sha() const noexcept { return m_extended_features_ebx[29]; }
-
+      SUPPORTS(sha, m_extended_features_ebx[29]);
       // \return returns true if PREFETCHWT1 instruction is supported
-      [[nodiscard]] bool supports_prefetchwt1() const noexcept {
-        return m_extended_features_ecx[0];
-      }
-
-      // AMD and Intel-Specific Features
+      SUPPORTS(prefetchwt1, m_extended_features_ecx[0]);
       // \return returns true if SYSCALL/SYSRET instructions are supported on Intel CPUs
-      [[nodiscard]] bool supports_syscall() const noexcept {
-        return m_is_intel && m_amd_extended_features_edx[11];
-      }
-
+      SUPPORTS(syscall, m_is_intel&& m_amd_extended_features_edx[11]);
       // \return returns true if LZCNT (Leading Zero Count) is supported on Intel CPUs
-      [[nodiscard]] bool supports_lzcnt() const noexcept {
-        return m_is_intel && m_amd_extended_features_ecx[5];
-      }
-
+      SUPPORTS(lzcnt, m_is_intel&& m_amd_extended_features_ecx[5]);
       // \return returns true if RDTSCP (Read Time-Stamp Counter) instruction is supported on Intel CPUs
-      [[nodiscard]] bool supports_rdtscp() const noexcept {
-        return m_is_intel && m_amd_extended_features_edx[27];
-      }
+      SUPPORTS(rdtscp, m_is_intel&& m_amd_extended_features_edx[27]);
+
+#undef SUPPORTS
 
      private:
       constexpr static auto cpuid_base = 0x80000000;
