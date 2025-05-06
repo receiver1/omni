@@ -54,11 +54,9 @@ namespace shadow::concepts {
   template <typename Ty>
   concept chrono_duration =
       std::is_base_of_v<std::chrono::duration<typename Ty::rep, typename Ty::period>, Ty>;
-  template <typename Ty>
-  concept const_pointer = std::is_const_v<std::remove_pointer_t<Ty>>;
 
-  template <typename Ptr>
-  using remove_const_ptr_t = std::add_pointer_t<std::remove_const_t<std::remove_pointer_t<Ptr>>>;
+  template <typename Ty>
+  using non_void_type = std::conditional_t<std::is_void_v<Ty>, std::monostate, Ty>;
 
 }  // namespace shadow::concepts
 
@@ -3017,10 +3015,7 @@ namespace shadow {
     };
   };
 
-  template <typename Ty>
-  using NonVoidResult = std::conditional_t<std::is_void_v<Ty>, std::monostate, Ty>;
-
-  template <typename Ty, typename ResultTy = NonVoidResult<Ty>>
+  template <typename Ty, typename ResultTy = concepts::non_void_type<Ty>>
     requires(std::is_default_constructible_v<ResultTy>)
   class importer {
    public:
