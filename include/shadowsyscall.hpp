@@ -3026,27 +3026,29 @@ namespace shadow {
         : m_export(get_export(import_name, module_name)) {}
 
     template <typename... Args>
-    ResultTy operator()(Args&&... args) noexcept {
-      return m_call_result = m_export.address().execute<ResultTy>(
-                 shadow::detail::convert_nulls_to_nullptrs(args)...);
+    auto operator()(Args&&... args) noexcept {
+      return m_export.address().execute<ResultTy>(
+          shadow::detail::convert_nulls_to_nullptrs(args)...);
     }
 
     [[nodiscard]] auto export_location() const noexcept { return m_export.location(); }
 
-    [[nodiscard]] ResultTy result() const noexcept { return m_call_result; }
+    [[nodiscard]] auto dll_export() const noexcept { return m_export; }
 
-    operator ResultTy() const { return m_call_result; }
+    friend std::ostream& operator<<(std::ostream& os, const importer& imp) {
+      return os << imp.dll_export();
+    }
 
    private:
     detail::dll_export get_export(hash64_t export_name, hash64_t module_name) {
 #ifndef SHADOWSYSCALLS_DISABLE_CACHING
-      detail::dll_export module = detail::address_cache[export_name.raw()];
-      if (module == 0) {
-        module = dll_export(export_name, module_name);
-        detail::address_cache.try_emplace(export_name.raw(), module);
+      detail::dll_export exp = detail::address_cache[export_name.raw()];
+      if (exp == 0) {
+        exp = shadow::dll_export(export_name, module_name);
+        detail::address_cache.try_emplace(export_name.raw(), exp);
       }
 
-      return module;
+      return exp;
 #else
       return dll_export(export_name);
 #endif
@@ -3055,6 +3057,7 @@ namespace shadow {
     ResultTy m_call_result{};
     detail::dll_export m_export{0};
   };
+
 }  // namespace shadow
 
 template <>
@@ -3088,18 +3091,14 @@ inline shadow::call_result_t<Ty, shadow::errc> shadowsyscall(shadow::hash64_t sy
 }
 
 template <typename Ty = std::monostate, class... Args>
-inline shadow::importer<Ty> shadowcall(shadow::hash64_t export_name, Args&&... args) {
-  shadow::importer<Ty> importer{export_name};
-  importer(std::forward<Args>(args)...);
-  return importer;
+inline Ty shadowcall(shadow::hash64_t export_name, Args&&... args) {
+  return shadow::importer<Ty>{export_name}(std::forward<Args>(args)...);
 }
 
 template <typename Ty = std::monostate, class... Args>
-inline shadow::importer<Ty> shadowcall(shadow::hashpair export_and_module_names, Args&&... args) {
+inline Ty shadowcall(shadow::hashpair export_and_module_names, Args&&... args) {
   const auto& [export_name, module_name] = export_and_module_names;
-  shadow::importer<Ty> importer{export_name, module_name};
-  importer(std::forward<Args>(args)...);
-  return importer;
+  return shadow::importer<Ty>{export_name, module_name}(std::forward<Args>(args)...);
 }
 
 #endif
