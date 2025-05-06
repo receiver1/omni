@@ -118,7 +118,7 @@ namespace shadow {
     }
 
     template <typename Ty, typename... Args>
-    [[nodiscard]] Ty execute(Args... args) const noexcept {
+    [[nodiscard]] Ty execute(Args&&... args) const noexcept {
       if (m_address == 0) {
         if constexpr (std::is_pointer_v<Ty>)
           return nullptr;
@@ -126,7 +126,10 @@ namespace shadow {
           return Ty{};
       }
 
-      return reinterpret_cast<Ty(__stdcall*)(Args...)>(m_address)(args...);
+      using target_function_t = Ty(__stdcall*)(std::decay_t<Args>...);
+      const auto target_function = reinterpret_cast<target_function_t>(m_address);
+
+      return target_function(std::forward<Args>(args)...);
     }
 
     constexpr explicit operator std::uintptr_t() const noexcept { return m_address; }
@@ -2733,8 +2736,8 @@ namespace shadow {
 
   }  // namespace literals
 
-  // Used in `shadowcall` to create a pairing
-  // with simple syntax, e.g.{ "name", "name" }
+  // Used in `shadowcall` to create a pairing with simple syntax,
+  // { "NtQueryInformationProcess", "ntdll" }
   struct hashpair {
     consteval hashpair(hash64_t first_, hash64_t second_) : first(first_), second(second_) {}
 
