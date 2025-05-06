@@ -2643,7 +2643,7 @@ namespace shadow {
 
       bool try_emplace(key_t key, value_t value) {
         std::scoped_lock lock(m_cache_mutex);
-        const auto [_, was_emplaced] = m_cache_map.try_emplace(key, value);
+        const bool was_emplaced = m_cache_map.try_emplace(key, value).second;
         return was_emplaced;
       }
 
