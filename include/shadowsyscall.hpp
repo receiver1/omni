@@ -445,13 +445,20 @@ namespace shadow {
       uint32_t rva_names;
       uint32_t rva_name_ordinals;
 
-      [[nodiscard]] auto rva_table(std::uintptr_t base_address) const {
-        return reinterpret_cast<std::uint32_t*>(base_address + rva_functions);
+      [[nodiscard]] auto rva_table(address_t base_address) const {
+        return base_address.ptr<std::uint32_t>(rva_functions);
       }
 
-      [[nodiscard]] auto ordinal_table(std::uintptr_t base_address) const {
-        return reinterpret_cast<std::uint16_t*>(base_address + rva_name_ordinals);
+      [[nodiscard]] auto ordinal_table(address_t base_address) const {
+        return base_address.ptr<std::uint16_t>(rva_name_ordinals);
       }
+    };
+
+    struct export_t {
+      std::string_view name;
+      address_t address;
+      std::uint32_t ordinal;
+      bool is_forwarded;
     };
 
     enum class subsystem_id : uint16_t {
@@ -2060,26 +2067,32 @@ namespace shadow {
     class export_enumerator {
      public:
       explicit export_enumerator(address_t base) noexcept
-          : m_module_base(base), m_export_table(get_export_directory(base)) {}
+          : m_module_base(base), m_export_dir(get_export_directory(base)) {}
 
       [[nodiscard]] std::size_t size() const noexcept {
-        return m_export_table->num_names;
+        return m_export_dir->num_names;
       }
 
       [[nodiscard]] const win::export_directory_t* table() const noexcept {
-        return m_export_table;
+        return m_export_dir;
       }
 
       [[nodiscard]] auto name(std::size_t index) const noexcept {
-        const auto rva_names_ptr = m_module_base.offset(m_export_table->rva_names);
-        const auto rva_names_span = rva_names_ptr.span<const uint32_t>(m_export_table->num_names);
+        const auto rva_names_ptr = m_module_base.offset(m_export_dir->rva_names);
+        const auto rva_names_span = rva_names_ptr.span<const uint32_t>(m_export_dir->num_names);
         const auto export_name_ptr = m_module_base.offset<const char*>(rva_names_span[index]);
         return std::string_view{export_name_ptr};
       }
 
+      [[nodiscard]] auto ordinal(std::size_t index) const noexcept {
+        // The ordinal table stores *unbiased* ordinals, so add OrdinalBase.
+        const auto ordinal_table_ptr = m_export_dir->ordinal_table(m_module_base);
+        return static_cast<uint32_t>(ordinal_table_ptr[index] + m_export_dir->base);
+      }
+
       [[nodiscard]] auto address(std::size_t index) const noexcept {
-        const auto rva_table_ptr = m_export_table->rva_table(m_module_base.get());
-        const auto ordinal_table_ptr = m_export_table->ordinal_table(m_module_base.get());
+        const auto rva_table_ptr = m_export_dir->rva_table(m_module_base);
+        const auto ordinal_table_ptr = m_export_dir->ordinal_table(m_module_base);
 
         const auto ordinal = ordinal_table_ptr[index];
         const auto rva_function = rva_table_ptr[ordinal];
@@ -2088,7 +2101,7 @@ namespace shadow {
       }
 
       [[nodiscard]] auto is_export_forwarded(address_t export_address) const noexcept {
-        const auto image = win::image_from_base(m_module_base.get());
+        const auto image = win::image_from_base(m_module_base);
         const auto export_data_dir =
             image->get_optional_header()->data_directories.export_directory;
 
@@ -2101,7 +2114,7 @@ namespace shadow {
       class iterator {
        public:
         using iterator_category = std::bidirectional_iterator_tag;
-        using value_type = std::pair<std::string_view, address_t>;
+        using value_type = win::export_t;
         using difference_type = std::ptrdiff_t;
         using pointer = value_type*;
         using reference = value_type&;
@@ -2177,12 +2190,19 @@ namespace shadow {
 
        private:
         void update_value() noexcept {
-          if (m_index < m_exports->size())
-            m_value = value_type{m_exports->name(m_index), m_exports->address(m_index)};
+          if (m_index < m_exports->size()) {
+            const auto address = m_exports->address(m_index);
+            m_value = value_type{
+                .name = m_exports->name(m_index),
+                .address = address,
+                .ordinal = m_exports->ordinal(m_index),
+                .is_forwarded = m_exports->is_export_forwarded(address),
+            };
+          }
         }
 
         void reset_value() noexcept {
-          m_value = value_type{"", 0};
+          m_value = value_type{};
         }
 
         const export_enumerator* m_exports;
@@ -2207,9 +2227,8 @@ namespace shadow {
         if (export_name == 0)
           return end();
 
-        auto it = std::ranges::find_if(*this, [export_name](const auto& pair) -> bool {
-          const auto& [name, address] = pair;
-          return export_name == hash64_t{}(name);
+        auto it = std::ranges::find_if(*this, [export_name](const win::export_t& data) -> bool {
+          return export_name == hash64_t{}(data.name);
         });
 
         return it;
@@ -2218,7 +2237,7 @@ namespace shadow {
       // \brief Find an export with user-defined predicate
       // \param predicate User-defined predicate
       // \return Iterator pointing to [name, address] if export is found, .end() if export is not found.
-      [[nodiscard]] iterator find_if(std::predicate<iterator::value_type> auto predicate) {
+      [[nodiscard]] iterator find_if(std::predicate<iterator::value_type> auto predicate) const {
         return std::ranges::find_if(*this, predicate);
       }
 
@@ -2231,7 +2250,7 @@ namespace shadow {
       }
 
       address_t m_module_base;
-      win::export_directory_t* m_export_table{nullptr};
+      win::export_directory_t* m_export_dir{nullptr};
     };
 
     class dynamic_link_library {
@@ -2532,20 +2551,19 @@ namespace shadow {
           export_enumerator exports{module.base_address()};
 
           // Search for export by comparing hashed names
-          const auto predicate_by_name = [export_name](const auto& pair) -> bool {
-            const auto& [name, address] = pair;
-            return export_name == hash64_t{}(name);
+          const auto predicate_by_name = [export_name](const win::export_t& data) -> bool {
+            return export_name == hash64_t{}(data.name);
           };
 
           if (auto export_it = exports.find_if(predicate_by_name); export_it != exports.end()) {
-            const auto& [_, address] = *export_it;
+            const win::export_t& export_data = *export_it;
 
             // Learn more here: https://devblogs.microsoft.com/oldnewthing/20060719-24/?p=30473
-            if (exports.is_export_forwarded(address)) {
-              return handle_forwarded_export(address);
+            if (export_data.is_forwarded) {
+              return handle_forwarded_export(export_data.address);
             }
 
-            return {address, module};
+            return {export_data.address, module};
           }
         }
 
