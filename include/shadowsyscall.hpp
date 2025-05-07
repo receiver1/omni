@@ -36,6 +36,12 @@
 #include <type_traits>
 #include <variant>
 
+#if defined(__cpp_exceptions) && __cpp_exceptions
+#define SHADOW_HAS_EXCEPTIONS true
+#else
+#define SHADOW_HAS_EXCEPTIONS false
+#endif
+
 namespace shadow::concepts {
 
   template <typename Ty>
@@ -1170,7 +1176,7 @@ namespace shadow {
       }
 
       Ret operator()(Args... args) {
-#if _HAS_EXCEPTIONS
+#if SHADOW_HAS_EXCEPTIONS
         if (!m_invoker)
           throw std::bad_function_call();
 #endif
@@ -2666,13 +2672,12 @@ namespace shadow {
       return it != modules.end() ? *it : dynamic_link_library{};
     }
 
-    class operation_system {
+    class operating_system {
      public:
-      constexpr operation_system(std::uint32_t major, std::uint32_t minor,
-                                 std::uint32_t build_num) noexcept
+      operating_system(std::uint32_t major, std::uint32_t minor, std::uint32_t build_num) noexcept
           : m_major_version(major), m_minor_version(minor), m_build_number(build_num) {}
 
-      [[nodiscard]] auto is_windows_11() const {
+      [[nodiscard]] auto is_windows_11() const noexcept {
         return m_major_version == 10 && m_build_number >= 22000;
       }
 
@@ -2680,32 +2685,32 @@ namespace shadow {
         return m_major_version == 10 && m_build_number < 22000;
       }
 
-      [[nodiscard]] auto is_windows_8_1() const {
+      [[nodiscard]] auto is_windows_8_1() const noexcept {
         return verify_version_mask(6, 3);
       }
-      [[nodiscard]] auto is_windows_8() const {
+      [[nodiscard]] auto is_windows_8() const noexcept {
         return verify_version_mask(6, 2);
       }
-      [[nodiscard]] auto is_windows_7() const {
+      [[nodiscard]] auto is_windows_7() const noexcept {
         return verify_version_mask(6, 1);
       }
-      [[nodiscard]] auto is_windows_xp() const {
+      [[nodiscard]] auto is_windows_xp() const noexcept {
         return verify_version_mask(6, 0);
       }
-      [[nodiscard]] auto is_windows_vista() const {
+      [[nodiscard]] auto is_windows_vista() const noexcept {
         return verify_version_mask(5, 1);
       }
-      [[nodiscard]] auto major_version() const {
+      [[nodiscard]] auto major_version() const noexcept {
         return m_major_version;
       }
-      [[nodiscard]] auto minor_version() const {
+      [[nodiscard]] auto minor_version() const noexcept {
         return m_minor_version;
       }
-      [[nodiscard]] auto build_number() const {
+      [[nodiscard]] auto build_number() const noexcept {
         return m_build_number;
       }
 
-      [[nodiscard]] auto formatted() const {
+      [[nodiscard]] auto formatted() const noexcept {
         return std::format("Windows {}.{} (Build {})", m_major_version, m_minor_version,
                            m_build_number);
       }
@@ -2873,7 +2878,7 @@ namespace shadow {
         const auto major = m_data->nt_major_version;
         const auto minor = m_data->nt_minor_version;
         const auto build_num = m_data->nt_build_number;
-        return operation_system{major, minor, build_num};
+        return operating_system{major, minor, build_num};
       }
 
       // \return 100-ns interval. Timestamp starting
@@ -3092,7 +3097,7 @@ namespace shadow {
     [[nodiscard]] Ty* allocate(std::size_t n) const {
       std::size_t size = n * sizeof(Ty);
       void* ptr = virtual_alloc(nullptr, size, memory_commit | memory_reserve, page_rwx);
-#if _HAS_EXCEPTIONS
+#if SHADOW_HAS_EXCEPTIONS
       if (!ptr)
         throw std::bad_alloc();
 #endif
@@ -3221,7 +3226,7 @@ namespace shadow {
     using ssn_parser_t = detail::stack_function<std::optional<uint32_t>(syscaller&, address_t)>;
 
    public:
-    constexpr syscaller(hash64_t syscall_name) noexcept(!_HAS_EXCEPTIONS)
+    constexpr syscaller(hash64_t syscall_name) noexcept(!SHADOW_HAS_EXCEPTIONS)
         : m_name_hash(syscall_name),
           m_service_number(0),
           m_last_error(std::nullopt),
