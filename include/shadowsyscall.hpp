@@ -7,8 +7,8 @@
 // Credits to https://github.com/can1357/linux-pe for the very pretty structs
 // Special thanks to @inversion
 
-#ifndef SHADOWSYSCALL_HPP
-#define SHADOWSYSCALL_HPP
+#ifndef SHADOW_SYSCALL_HPP
+#define SHADOW_SYSCALL_HPP
 
 #ifndef SHADOWSYSCALLS_DISABLE_CACHING
 #include <mutex>
@@ -64,7 +64,7 @@ namespace shadow::concepts {
   }();
 
   template <typename Ty>
-  using non_void_type = std::conditional_t<std::is_void_v<Ty>, std::monostate, Ty>;
+  using non_void_t = std::conditional_t<std::is_void_v<Ty>, std::monostate, Ty>;
 
   template <typename Ty>
   constexpr bool is_type_ntstatus = std::is_same_v<std::remove_cv_t<Ty>, long>;
@@ -200,7 +200,7 @@ namespace shadow {
   };
 
   namespace win {
-    constexpr static std::uint32_t NUM_DATA_DIRECTORIES = 16;
+    constexpr static std::uint32_t num_data_directories = 16;
     constexpr static std::uint32_t img_npos = 0xFFFFFFFF;
 
     inline auto split_forwarder_string(std::string_view view, char delimiter) noexcept {
@@ -416,7 +416,7 @@ namespace shadow {
           data_directory_t com_descriptor_directory;
           data_directory_t _reserved0;
         };
-        data_directory_t entries[NUM_DATA_DIRECTORIES];
+        data_directory_t entries[num_data_directories];
       };
     };
 
@@ -440,7 +440,7 @@ namespace shadow {
           data_directory_t com_descriptor_directory;
           data_directory_t _reserved0;
         };
-        data_directory_t entries[NUM_DATA_DIRECTORIES];
+        data_directory_t entries[num_data_directories];
       };
     };
 
@@ -1277,12 +1277,12 @@ namespace shadow {
     using hash32_t = detail::basic_hash<uint32_t>;
     using hash64_t = detail::basic_hash<uint64_t>;
 
-    class memory_converter {
+    class memory_size {
       constexpr static auto conversion_value = 1000.0;
 
      public:
       template <std::integral Ty>
-      explicit memory_converter(Ty bytes) noexcept : m_bytes(bytes) {}
+      explicit memory_size(Ty bytes) noexcept : m_bytes(bytes) {}
 
       [[nodiscard]] auto as_bytes() const noexcept {
         return m_bytes;
@@ -1309,11 +1309,11 @@ namespace shadow {
       std::size_t m_bytes;
     };
 
-    class hardware_processor {
+    class cpu_info {
       class caches_info;
 
      public:
-      hardware_processor() noexcept {
+      cpu_info() noexcept {
         parse_cpu_fields();
       }
 
@@ -1469,19 +1469,19 @@ namespace shadow {
         }
 
         [[nodiscard]] auto l1_size() const noexcept {
-          return memory_converter{m_cache_sizes[0]};
+          return memory_size{m_cache_sizes[0]};
         }
 
         [[nodiscard]] auto l2_size() const noexcept {
-          return memory_converter{m_cache_sizes[1]};
+          return memory_size{m_cache_sizes[1]};
         }
 
         [[nodiscard]] auto l3_size() const noexcept {
-          return memory_converter{m_cache_sizes[2]};
+          return memory_size{m_cache_sizes[2]};
         }
 
         [[nodiscard]] auto total_size() const noexcept {
-          return memory_converter{l1_size() + l2_size() + l3_size()};
+          return memory_size{l1_size() + l2_size() + l3_size()};
         }
 
        private:
@@ -1930,9 +1930,9 @@ namespace shadow {
       address_t m_base;
     };
 
-    class api_set_map_enumerator {
+    class api_set_map_view {
      public:
-      api_set_map_enumerator() {
+      api_set_map_view() {
         auto peb = win::PEB::address();
 
         m_api_set_map = reinterpret_cast<const win::api_set_namespace*>(peb->reserved9[0]);
@@ -1959,7 +1959,7 @@ namespace shadow {
 
         iterator() : m_enumerator(nullptr), m_index(0) {}
 
-        iterator(const api_set_map_enumerator* enumerator, uint32_t index)
+        iterator(const api_set_map_view* enumerator, uint32_t index)
             : m_enumerator(enumerator), m_index(index) {
           update_value();
         }
@@ -2030,7 +2030,7 @@ namespace shadow {
                                     m_enumerator->m_base);
         }
 
-        const api_set_map_enumerator* m_enumerator;
+        const api_set_map_view* m_enumerator;
         uint32_t m_index;
         value_type m_current;
       };
@@ -2075,16 +2075,16 @@ namespace shadow {
       address_t m_base;
     };
 
-    class export_enumerator {
+    class export_view {
      public:
-      explicit export_enumerator(address_t base) noexcept
+      explicit export_view(address_t base) noexcept
           : m_module_base(base), m_export_dir(get_export_directory(base)) {}
 
       [[nodiscard]] std::size_t size() const noexcept {
         return m_export_dir->num_names;
       }
 
-      [[nodiscard]] const win::export_directory_t* table() const noexcept {
+      [[nodiscard]] const win::export_directory_t* directory() const noexcept {
         return m_export_dir;
       }
 
@@ -2096,9 +2096,9 @@ namespace shadow {
       }
 
       [[nodiscard]] auto ordinal(std::size_t index) const noexcept {
-        // The ordinal table stores *unbiased* ordinals, so add OrdinalBase.
+        // The ordinal table stores *unbiased* ordinals, so we add base.
         const auto ordinal_table_ptr = m_export_dir->ordinal_table(m_module_base);
-        return static_cast<uint32_t>(ordinal_table_ptr[index] + m_export_dir->base);
+        return static_cast<uint32_t>(m_export_dir->base + ordinal_table_ptr[index]);
       }
 
       [[nodiscard]] auto address(std::size_t index) const noexcept {
@@ -2136,7 +2136,7 @@ namespace shadow {
         iterator(iterator&&) = default;
         iterator& operator=(iterator&&) = default;
 
-        iterator(const export_enumerator* exports, std::size_t index) noexcept
+        iterator(const export_view* exports, std::size_t index) noexcept
             : m_exports(exports), m_index(index), m_value() {
           update_value();
         }
@@ -2216,7 +2216,7 @@ namespace shadow {
           m_value = value_type{};
         }
 
-        const export_enumerator* m_exports;
+        const export_view* m_exports;
         std::size_t m_index;
         mutable value_type m_value;
       };
@@ -2322,7 +2322,7 @@ namespace shadow {
 
       // \return Exports range-enumerator of current DLL
       [[nodiscard]] auto exports() const noexcept {
-        return export_enumerator{m_data->base_address};
+        return export_view{m_data->base_address};
       }
 
       template <std::integral Ty = std::size_t>
@@ -2376,15 +2376,15 @@ namespace shadow {
       win::loader_table_entry* m_data{nullptr};
     };
 
-    class module_enumerator {
+    class module_view {
      public:
-      explicit module_enumerator() {
+      explicit module_view() {
         auto entry = &win::PEB::loader_data()->in_load_order_module_list;
         m_begin = entry->flink;
         m_end = entry;
       }
 
-      module_enumerator& skip_module() {
+      module_view& skip_module() {
         m_begin = m_begin->flink;
         return *this;
       }
@@ -2490,19 +2490,24 @@ namespace shadow {
       win::list_entry* m_end{nullptr};
     };
 
-    class dll_export {
-     public:
-      dll_export() = default;
-      dll_export(hash64_t export_name, hash64_t module_hash = 0) noexcept {
-        const auto exp = find_export_address(export_name, module_hash);
-        m_data = exp;
-      }
+    struct use_ordinal_t {
+      explicit constexpr use_ordinal_t() noexcept = default;
+    };
 
-      dll_export(const dll_export& instance) = default;
-      dll_export(dll_export&& instance) = default;
-      dll_export& operator=(const dll_export& instance) = default;
-      dll_export& operator=(dll_export&& instance) = default;
-      ~dll_export() = default;
+    class exported_symbol {
+     public:
+      exported_symbol() = default;
+      explicit exported_symbol(hash64_t export_name, hash64_t module_hash = 0) noexcept
+          : m_data(find_export_address(export_name, module_hash)) {}
+
+      explicit exported_symbol(hash64_t module_hash, std::uint32_t ordinal) noexcept
+          : m_data(find_export_by_ordinal(module_hash, ordinal)) {}
+
+      exported_symbol(const exported_symbol& instance) = default;
+      exported_symbol(exported_symbol&& instance) = default;
+      exported_symbol& operator=(const exported_symbol& instance) = default;
+      exported_symbol& operator=(exported_symbol&& instance) = default;
+      ~exported_symbol() = default;
 
       [[nodiscard]] auto address() const noexcept {
         return m_data.address;
@@ -2531,7 +2536,7 @@ namespace shadow {
         return address();
       }
 
-      friend std::ostream& operator<<(std::ostream& os, const dll_export& exp) {
+      friend std::ostream& operator<<(std::ostream& os, const exported_symbol& exp) {
         os << exp.address().ptr();
         if (exp.location().name())
           os << ':' << exp.location().name();
@@ -2546,12 +2551,46 @@ namespace shadow {
         win::forwarder_string forwarder_string{};
       };
 
+      export_with_location find_export_by_ordinal(hash64_t module_hash,
+                                                  std::uint32_t ordinal) const noexcept {
+        if (module_hash == 0)
+          return {};
+
+        const auto process_modules = module_view{}.skip_module();
+
+        // Enumerate every module loaded to process
+        for (const auto& module : process_modules) {
+          if (module != module_hash)
+            continue;
+
+          export_view exports{module.base_address()};
+
+          // Search for export by comparing ordinals
+          const auto predicate_by_name = [ordinal](const win::export_t& exp) -> bool {
+            return exp.ordinal == ordinal;
+          };
+
+          if (auto export_it = exports.find_if(predicate_by_name); export_it != exports.end()) {
+            const win::export_t& export_data = *export_it;
+
+            // Learn more here: https://devblogs.microsoft.com/oldnewthing/20060719-24/?p=30473
+            if (export_data.is_forwarded) {
+              return handle_forwarded_export(export_data.address);
+            }
+
+            return {export_data.address, module};
+          }
+        }
+
+        return {};
+      }
+
       export_with_location find_export_address(hash64_t export_name,
                                                hash64_t module_hash = 0) const noexcept {
         if (export_name == 0)
-          return {0, {}};
+          return {};
 
-        const auto process_modules = module_enumerator{}.skip_module();
+        const auto process_modules = module_view{}.skip_module();
         const bool is_module_specified = module_hash != 0;
 
         // Enumerate every module loaded to process
@@ -2559,7 +2598,7 @@ namespace shadow {
           if (is_module_specified && module != module_hash)
             continue;
 
-          export_enumerator exports{module.base_address()};
+          export_view exports{module.base_address()};
 
           // Search for export by comparing hashed names
           const auto predicate_by_name = [export_name](const win::export_t& data) -> bool {
@@ -2578,33 +2617,38 @@ namespace shadow {
           }
         }
 
-        return {0, {}};
+        return {};
       }
 
       export_with_location handle_forwarded_export(address_t address) const {
         // In a forwarded export, the address is a string containing
         // information about the actual export and its location
         // They are always presented as "module_name.export_name"
-        auto forwarder_string = address.ptr<const char>();
+        auto fwd_str = address.ptr<const char>();
 
         // Split forwarded export to module name and real export name
-        auto [module_name, real_export_name] = win::split_forwarder_string(forwarder_string, '.');
+        auto [module_name, token] = win::split_forwarder_string(fwd_str, '.');
 
         // Perform call with the name of the real export, with a pre-known module
-        auto real_export =
-            find_export_address(hash64_t{}(real_export_name), hash64_t{}(module_name));
+        export_with_location real_export;
+        if (!token.empty() && token.front() == '#') {
+          auto ordinal_str = token.substr(1);
+          std::uint32_t real_ordinal = 0;
+          auto conversion_result = std::from_chars(
+              ordinal_str.data(), ordinal_str.data() + ordinal_str.size(), real_ordinal);
 
+          if (conversion_result.ec == std::errc{})
+            real_export = find_export_by_ordinal(hash64_t{}(module_name), real_ordinal);
+        } else {
+          real_export = find_export_address(hash64_t{}(token), hash64_t{}(module_name));
+        }
+
+        // The DLL pointed to by the forwarder is not loaded into the
+        // process, so we just return the result with forwarder_string
         if (!real_export.dll.present()) {
-          win::forwarder_string fwd_string{
-              .dll = module_name,
-              .function = real_export_name,
-          };
-
           return export_with_location{
-              .address = nullptr,
-              .dll = {},
               .is_forwarded = true,
-              .forwarder_string = fwd_string,
+              .forwarder_string = {module_name, token},
           };
         }
 
@@ -2615,7 +2659,7 @@ namespace shadow {
     };
 
     inline dynamic_link_library dynamic_link_library::find(hash64_t module_name) const {
-      module_enumerator modules{};
+      module_view modules{};
       auto it = modules.find_if([=, this](const dynamic_link_library& dll) -> bool {
         return !dll.name().view().empty() && dll == module_name;
       });
@@ -2937,7 +2981,7 @@ namespace shadow {
     };
 
     inline memory_cache<std::uint32_t, hash64_t::underlying_t> ssn_cache;
-    inline memory_cache<detail::dll_export, hash64_t::underlying_t> address_cache;
+    inline memory_cache<detail::exported_symbol, hash64_t::underlying_t> address_cache;
 
 #endif
 
@@ -2971,6 +3015,7 @@ namespace shadow {
 
   }  // namespace detail
 
+  constexpr detail::use_ordinal_t use_ordinal{};
   using detail::hash32_t;
   using detail::hash64_t;
 
@@ -3000,31 +3045,35 @@ namespace shadow {
   }
 
   inline auto current_module() {
-    return *(detail::module_enumerator{}.begin());
+    return *(detail::module_view{}.begin());
   }
 
-  inline auto dll_export(hash64_t export_name, hash64_t module_name = 0) {
-    return detail::dll_export{export_name, module_name};
+  inline auto exported_symbol(hash64_t export_name, hash64_t module_name = 0) {
+    return detail::exported_symbol{export_name, module_name};
+  }
+
+  inline auto exported_symbol(detail::use_ordinal_t, hash64_t module, std::uint32_t ordinal) {
+    return detail::exported_symbol(module, ordinal);
   }
 
   inline auto dlls() {
-    return detail::module_enumerator{}.skip_module();
+    return detail::module_view{}.skip_module();
   }
 
-  inline auto dll_exports(hash64_t module_name) {
-    return detail::export_enumerator{dll(module_name).base_address()};
+  inline auto exported_symbols(hash64_t module_name) {
+    return detail::export_view{dll(module_name).base_address()};
   }
 
   inline auto shared_data() {
     return detail::shared_data{};
   }
 
-  inline auto api_set_map_enumerator() {
-    return detail::api_set_map_enumerator{};
+  inline auto api_set_map_view() {
+    return detail::api_set_map_view{};
   }
 
   inline auto cpu() {
-    static detail::hardware_processor processor;
+    static detail::cpu_info processor;
     return processor;
   }
 
@@ -3065,7 +3114,7 @@ namespace shadow {
       void* base_address = address;
       std::uint64_t region_size = allocation_size;
       static address_t allocation_procedure{
-          dll_export("NtAllocateVirtualMemory", "ntdll.dll").address()};
+          exported_symbol("NtAllocateVirtualMemory", "ntdll.dll").address()};
 
       auto result = allocation_procedure.execute<NTSTATUS>(
           current_process, &base_address, 0ull, &region_size, allocation_t & 0xFFFFFFC0, protect);
@@ -3077,7 +3126,8 @@ namespace shadow {
       auto region_size{allocation_size};
       void* base_address = address;
       void* current_process{reinterpret_cast<void*>(-1)};
-      static address_t free_procedure{dll_export("NtFreeVirtualMemory", "ntdll.dll").address()};
+      static address_t free_procedure{
+          exported_symbol("NtFreeVirtualMemory", "ntdll.dll").address()};
 
       if (((flags & 0xFFFF3FFC) != 0 || (flags & 0x8003) == 0x8000) && allocation_size)
         result = -0x3FFFFFF3;
@@ -3222,7 +3272,7 @@ namespace shadow {
       if (cached_ssn != 0)
         return cached_ssn;
 #endif
-      auto mod_export = dll_export(m_name_hash);
+      auto mod_export = exported_symbol(m_name_hash);
       if (mod_export == 0) {
         set_last_error(error::export_not_found);
         return std::nullopt;
@@ -3265,7 +3315,7 @@ namespace shadow {
     };
   };
 
-  template <typename Ty, typename ResultTy = concepts::non_void_type<Ty>>
+  template <typename Ty, typename ResultTy = concepts::non_void_t<Ty>>
     requires(std::is_default_constructible_v<ResultTy>)
   class importer {
    public:
@@ -3282,31 +3332,31 @@ namespace shadow {
       return m_export.location();
     }
 
-    [[nodiscard]] auto dll_export() const noexcept {
+    [[nodiscard]] auto exported_symbol() const noexcept {
       return m_export;
     }
 
     friend std::ostream& operator<<(std::ostream& os, const importer& imp) {
-      return os << imp.dll_export();
+      return os << imp.exported_symbol();
     }
 
    private:
-    detail::dll_export get_export(hash64_t export_name, hash64_t module_name) {
+    detail::exported_symbol get_export(hash64_t export_name, hash64_t module_name) {
 #ifndef SHADOWSYSCALLS_DISABLE_CACHING
-      detail::dll_export exp = detail::address_cache[export_name.get()];
+      detail::exported_symbol exp = detail::address_cache[export_name.get()];
       if (exp == 0) {
-        exp = shadow::dll_export(export_name, module_name);
+        exp = shadow::exported_symbol(export_name, module_name);
         detail::address_cache.try_emplace(export_name.get(), exp);
       }
 
       return exp;
 #else
-      return dll_export(export_name);
+      return exported_symbol(export_name);
 #endif
     }
 
     ResultTy m_call_result{};
-    detail::dll_export m_export{0};
+    detail::exported_symbol m_export{0};
   };
 
 }  // namespace shadow
