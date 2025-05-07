@@ -56,7 +56,18 @@ namespace shadow::concepts {
       std::is_base_of_v<std::chrono::duration<typename Ty::rep, typename Ty::period>, Ty>;
 
   template <typename Ty>
+  concept fundamental = [] {
+    static_assert(std::is_fundamental_v<Ty>,
+                  "Nt/Zw functions cannot return the type you specified."
+                  "Type should be fundamental.");
+    return true;
+  }();
+
+  template <typename Ty>
   using non_void_type = std::conditional_t<std::is_void_v<Ty>, std::monostate, Ty>;
+
+  template <typename Ty>
+  constexpr bool is_type_ntstatus = std::is_same_v<std::remove_cv_t<Ty>, long>;
 
 }  // namespace shadow::concepts
 
@@ -2279,7 +2290,7 @@ namespace shadow {
 
       // \return uint16_t - How many references the current
       // DLL has at the moment
-      [[nodiscard]] auto reference_counter() const noexcept {
+      [[nodiscard]] auto reference_count() const noexcept {
         return loader_table_entry()->obsolete_load_count;
       }
 
@@ -3153,17 +3164,11 @@ namespace shadow {
 
   }  // namespace error
 
-  template <typename Ty>
+  template <concepts::fundamental Ty, bool IsTypeNtStatus = concepts::is_type_ntstatus<Ty>>
   class syscaller {
    public:
-    constexpr static auto is_type_ntstatus = std::is_same_v<std::remove_cv_t<Ty>, long>;
-
     // Parser needs to return std::optional<uint32_t> and accept (syscaller&, address_t)
     using ssn_parser_t = detail::stack_function<std::optional<uint32_t>(syscaller&, address_t)>;
-
-    static_assert(std::is_fundamental_v<Ty>,
-                  "Nt/Zw functions cannot return the type you specified."
-                  "Type should be fundamental");
 
    public:
     constexpr syscaller(hash64_t syscall_name) noexcept(!_HAS_EXCEPTIONS)
@@ -3181,7 +3186,7 @@ namespace shadow {
       if (!parse_result || m_last_error) {
         // Return -1 if type is NTSTATUS (call failed),
         // otherwise return default-constructible (0)
-        return is_type_ntstatus ? Ty{-1} : Ty{};
+        return IsTypeNtStatus ? Ty{-1} : Ty{};
       } else {
         m_service_number = *parse_result;
       }
