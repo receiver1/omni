@@ -154,7 +154,9 @@ int main() {
   // it’s hashed at compile time (consteval guarantee)
   // The implementation doesn't care about the ".dll" suffix
 
-  auto ntdll = shadow::dll("ntdll" /* after compilation it will become 384989384324938 */);
+  // after compilation it will become 384989384324938
+  auto ntdll_name_hash = shadow::hash64_t{"ntdll"};
+  auto ntdll = shadow::dll(ntdll_name_hash);
 
   auto current_module = shadow::current_module();
   debug_log("Current .exe filepath: {}", current_module.filepath().string());
@@ -175,7 +177,7 @@ int main() {
   debug_log("{} first exports of ntdll.dll", export_entries_count);
   for (const shadow::win::export_t& exp : first_n_exports) {
     const auto& [name, address, ordinal] = std::make_tuple(exp.name, exp.address, exp.ordinal);
-    debug_log("{} : {} : {}", name, address, ordinal);
+    debug_log("{} : {} : {}", name, address.ptr(), ordinal);
   }
 
   new_line();
@@ -195,6 +197,12 @@ int main() {
 
   const auto& export_data = *it;
   debug_log("Export {} VA is {}", export_data.name, export_data.address.ptr());
+
+  constexpr int ordinal = 10;
+  const auto& ordinal_export =
+      shadow::exported_symbol(shadow::use_ordinal, ntdll_name_hash, ordinal);
+  debug_log("Export on ordinal {} in ntdll.dll is presented on VA {}", ordinal,
+            ordinal_export.address().ptr());
 
   // "location" returns a DLL struct that contains this export
   std::filesystem::path dll_path = shadow::exported_symbol("Sleep").location().name().to_path();
@@ -285,23 +293,24 @@ List of DLLs loaded in the current process:
 C:\WINDOWS\SYSTEM32\ntdll.dll : 0x7ff933ca0000
 C:\WINDOWS\System32\KERNEL32.DLL : 0x7ff933310000
 C:\WINDOWS\System32\KERNELBASE.dll : 0x7ff930f40000
-C:\WINDOWS\SYSTEM32\MSVCP140D.dll : 0x7ff8de390000
 C:\WINDOWS\SYSTEM32\VCRUNTIME140D.dll : 0x7ff916180000
-C:\WINDOWS\SYSTEM32\VCRUNTIME140_1D.dll : 0x7ff92de60000
-C:\WINDOWS\SYSTEM32\ucrtbased.dll : 0x7ff8b2c10000
+C:\WINDOWS\SYSTEM32\MSVCP140D.dll : 0x7ff8de2f0000
+C:\WINDOWS\SYSTEM32\VCRUNTIME140_1D.dll : 0x7ff92dde0000
+C:\WINDOWS\SYSTEM32\ucrtbased.dll : 0x7ff8afe90000
 
 Current .exe filepath: C:\artem\cpp\shadow_syscall\build\examples\module_parser.exe
-Current .text section checksum: 125651
-Current module handle: 0x7ff603430000
+Current .text section checksum: 18446744073709543893
+Current module handle: 0x7ff609e80000
 
 5 first exports of ntdll.dll
-A_SHAFinal : 140708292465152 : 9
-A_SHAInit : 140708293421120 : 10
-A_SHAUpdate : 140708292472976 : 11
-AlpcAdjustCompletionListConcurrencyCount : 140708293569872 : 12
-AlpcFreeCompletionListMessage : 140708293345488 : 13
+A_SHAFinal : 0x7ff933ca1200 : 9
+A_SHAInit : 0x7ff933d8a840 : 10
+A_SHAUpdate : 0x7ff933ca3090 : 11
+AlpcAdjustCompletionListConcurrencyCount : 0x7ff933daed50 : 12
+AlpcFreeCompletionListMessage : 0x7ff933d780d0 : 13
 
 Export NtQuerySystemInformation VA is 0x7ff933dfc670
+Export on ordinal 10 in ntdll.dll is presented on VA 0x7ff933d8a840
 The DLL that contains the Sleep export is: KERNEL32.DLL
 
 
@@ -335,11 +344,11 @@ The DLL that contains the Sleep export is: KERNEL32.DLL
              Formatted OS String: Windows 10.0 (Build 26100)
 
                           [TIME]:
-                       Unix Time: 1746659595
-                       Unix Time: 2025-05-07T23:13:15
-               Unix Time (Local): 1746666795
-    Unix Time (Local) (ISO 8601): 2025-05-08T01:13:15
-                    Windows Time: 133911331957842469
+                       Unix Time: 1746661511
+                       Unix Time: 2025-05-07T23:45:11
+               Unix Time (Local): 1746668711
+    Unix Time (Local) (ISO 8601): 2025-05-08T01:45:11
+                    Windows Time: 133911351118390449
                      Timezone ID: 2
                  Timezone offset: 7200s
   ```

@@ -40,7 +40,9 @@ int main() {
   // it’s hashed at compile time (consteval guarantee)
   // The implementation doesn't care about the ".dll" suffix
 
-  auto ntdll = shadow::dll("ntdll" /* after compilation it will become 384989384324938 */);
+  // after compilation it will become 384989384324938
+  auto ntdll_name_hash = shadow::hash64_t{"ntdll"};
+  auto ntdll = shadow::dll(ntdll_name_hash);
 
   auto current_module = shadow::current_module();
   debug_log("Current .exe filepath: {}", current_module.filepath().string());
@@ -61,7 +63,7 @@ int main() {
   debug_log("{} first exports of ntdll.dll", export_entries_count);
   for (const shadow::win::export_t& exp : first_n_exports) {
     const auto& [name, address, ordinal] = std::make_tuple(exp.name, exp.address, exp.ordinal);
-    debug_log("{} : {} : {}", name, address, ordinal);
+    debug_log("{} : {} : {}", name, address.ptr(), ordinal);
   }
 
   new_line();
@@ -81,6 +83,12 @@ int main() {
 
   const auto& export_data = *it;
   debug_log("Export {} VA is {}", export_data.name, export_data.address.ptr());
+
+  constexpr int ordinal = 10;
+  const auto& ordinal_export =
+      shadow::exported_symbol(shadow::use_ordinal, ntdll_name_hash, ordinal);
+  debug_log("Export on ordinal {} in ntdll.dll is presented on VA {}", ordinal,
+            ordinal_export.address().ptr());
 
   // "location" returns a DLL struct that contains this export
   std::filesystem::path dll_path = shadow::exported_symbol("Sleep").location().name().to_path();
