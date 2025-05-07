@@ -1,0 +1,6 @@
+file(GLOB EXAMPLE_SRCS CONFIGURE_DEPENDS *.cpp)
+foreach(src ${EXAMPLE_SRCS})
+		get_filename_component(example ${src} NAME_WE)
+		add_executable(${example} ${src})
+		target_link_libraries(${example} PRIVATE shadowsyscall)
+endforeach()

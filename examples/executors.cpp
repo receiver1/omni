@@ -2,7 +2,7 @@
 #include <thread>
 #include "shadowsyscall.hpp"
 
-// If “set_custom_ssn_parser” was called, the handling
+// If "set_custom_ssn_parser" was called, the handling
 // of the syscall index falls entirely on the user.
 //
 // This function is gonna be called once if caching is enabled.
@@ -52,7 +52,7 @@ int main() {
   int message_box_result = message_box_import(nullptr, "string 3", "string 4", MB_OK);
 
   std::cout << "MessageBoxA returned: " << message_box_result
-            << ", import data is: " << message_box_import.dll_export() << '\n';
+            << ", import data is: " << message_box_import.exported_symbol() << '\n';
 
   auto thread_handle = nullptr;
   const auto current_process = reinterpret_cast<HANDLE>(-1);

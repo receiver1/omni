@@ -33,10 +33,5 @@ include-directories = ["include/"]
 link-libraries = ["shadowsyscall", "GTest::gtest_main"]
 compile-features = ["cxx_std_20"]
 
-[target.shadowsyscall-examples]
-type = "executable"
+[subdir.examples]
 condition = "shadowsyscall-build-examples"
-sources = ["examples/**.cpp"]
-include-directories = ["include/"]
-link-libraries = ["shadowsyscall"]
-compile-features = ["cxx_std_20"]
