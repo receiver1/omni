@@ -3214,7 +3214,7 @@ namespace shadow {
 
   }  // namespace error
 
-  template <concepts::fundamental Ty, bool IsTypeNtStatus = concepts::is_type_ntstatus<Ty>>
+  template <concepts::fundamental Ty = long, bool IsTypeNtStatus = concepts::is_type_ntstatus<Ty>>
   class syscaller {
    public:
     // Parser needs to return std::optional<uint32_t> and accept (syscaller&, address_t)

@@ -63,7 +63,7 @@ int main() {
 
   // 1. Handle syscall failure
   // Return type may not be specified since v1.2
-  shadow::syscaller<NTSTATUS> create_thread_sc("NtCreateThreadEx");
+  shadow::syscaller create_thread_sc("NtCreateThreadEx");
 
   auto create_thread_status = create_thread_sc(
       &thread_handle, THREAD_ALL_ACCESS, NULL, current_process,
