@@ -320,6 +320,10 @@ int main() {
 ## 📜 What is a syscall in Windows?
 ![syscalls](https://github.com/user-attachments/assets/1719c073-669b-4e6b-b2ec-23850ba91dbc)
 
+## Backward compatibility
+> [!WARNING]\
+> This library is under development and most updates will not be backwards compatible with previous versions so that the code remains as clean as possible, and the library interface will have the opportunity to evolve.
+
 ## Thanks to
 invers1on :heart:
 
