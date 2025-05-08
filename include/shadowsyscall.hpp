@@ -3020,6 +3020,27 @@ namespace shadow {
 
   }  // namespace detail
 
+  namespace mem {
+    constexpr std::uint32_t commit = 0x1000;
+    constexpr std::uint32_t reserve = 0x2000;
+    constexpr std::uint32_t commit_reserve = commit | reserve;
+    constexpr std::uint32_t large_commit = commit | reserve | 0x20000000;
+    constexpr std::uint32_t release = 0x8000;
+
+    namespace page {
+      constexpr std::uint32_t no_access = 0x00000001;
+      constexpr std::uint32_t read_only = 0x00000002;
+      constexpr std::uint32_t read_write = 0x00000004;
+      constexpr std::uint32_t execute = 0x00000010;
+      constexpr std::uint32_t execute_read = 0x00000020;
+      constexpr std::uint32_t execute_read_write = 0x00000040;
+
+      constexpr std::uint32_t guard = 0x00000100;
+      constexpr std::uint32_t no_cache = 0x00000200;
+      constexpr std::uint32_t write_combine = 0x00000400;
+    }  // namespace page
+  }  // namespace mem
+
   constexpr detail::use_ordinal_t use_ordinal{};
   using detail::hash32_t;
   using detail::hash64_t;
@@ -3084,19 +3105,44 @@ namespace shadow {
 
   // nt_memory_allocator allocates memory based on "Nt" memory
   // functions located at "ntdll.dll".
-  template <typename Ty>
+  template <typename Ty, std::uint32_t AllocFlags = mem::commit_reserve,
+            std::uint32_t Protect = mem::page::read_write>
   class nt_memory_allocator {
    public:
     using value_type = Ty;
+    using pointer = Ty*;
+    using const_pointer = const Ty*;
+    using reference = Ty&;
+    using const_reference = const Ty&;
+    using size_type = std::size_t;
+    using difference_type = std::ptrdiff_t;
 
-    nt_memory_allocator() noexcept = default;
+    template <class U>
+    struct rebind {
+      using other = nt_memory_allocator<U, AllocFlags, Protect>;
+    };
+
+    template <class U, std::uint32_t AF, std::uint32_t PR>
+    constexpr nt_memory_allocator(const nt_memory_allocator<U, AF, PR>&) noexcept
+        : m_flags(AF), m_protect(PR) {}
+    constexpr nt_memory_allocator() noexcept = default;
 
     template <typename U>
     constexpr nt_memory_allocator(const nt_memory_allocator<U>&) noexcept {}
 
-    [[nodiscard]] Ty* allocate(std::size_t n) const {
+    [[nodiscard]] Ty* allocate(std::size_t n) {
       std::size_t size = n * sizeof(Ty);
-      void* ptr = virtual_alloc(nullptr, size, memory_commit | memory_reserve, page_rwx);
+      void* ptr = virtual_alloc(nullptr, size, AllocFlags, Protect);
+#if SHADOW_HAS_EXCEPTIONS
+      if (!ptr)
+        throw std::bad_alloc();
+#endif
+      return static_cast<Ty*>(ptr);
+    }
+
+    [[nodiscard]] Ty* allocate(address_t address, std::size_t n) {
+      std::size_t size = n * sizeof(Ty);
+      void* ptr = virtual_alloc(address.ptr(), size, AllocFlags, Protect);
 #if SHADOW_HAS_EXCEPTIONS
       if (!ptr)
         throw std::bad_alloc();
@@ -3107,11 +3153,20 @@ namespace shadow {
     template <typename PtrTy>
     void deallocate(PtrTy p, std::size_t n) noexcept {
       std::size_t size = n * sizeof(Ty);
-      virtual_free(static_cast<void*>(p), size, memory_release);
+      virtual_free(static_cast<void*>(p), size, mem::release);
     }
 
+    friend bool operator==(nt_memory_allocator, nt_memory_allocator) noexcept {
+      return true;
+    }
+    friend bool operator!=(nt_memory_allocator, nt_memory_allocator) noexcept {
+      return false;
+    }
+
+    using is_always_equal = std::true_type;
+
    private:
-    using NTSTATUS = std::int32_t;
+    using NTSTATUS = long;
 
     void* virtual_alloc(void* address, std::uint64_t allocation_size, std::uint32_t allocation_t,
                         std::uint32_t protect) const {
@@ -3146,11 +3201,18 @@ namespace shadow {
       return result >= 0;
     }
 
-    constexpr static auto memory_commit{0x1000};
-    constexpr static auto memory_reserve{0x2000};
-    constexpr static auto memory_release{0x8000};
-    constexpr static auto page_rwx{0x40};
+    std::uint32_t m_flags = AllocFlags;
+    std::uint32_t m_protect = Protect;
   };
+
+  template <typename Ty>
+  using rw_allocator = nt_memory_allocator<Ty, mem::commit_reserve, mem::page::read_write>;
+  template <typename Ty>
+  using rx_allocator = nt_memory_allocator<Ty, mem::commit_reserve, mem::page::execute_read>;
+  template <typename Ty>
+  using rwx_allocator = nt_memory_allocator<Ty, mem::commit_reserve, mem::page::execute_read_write>;
+  template <typename Ty>
+  using huge_allocator = nt_memory_allocator<Ty, mem::large_commit, mem::page::read_write>;
 
   template <std::uint32_t shell_size>
   class shellcode {
@@ -3204,7 +3266,7 @@ namespace shadow {
    private:
     void* m_shellcode_fn = nullptr;
     void* m_memory = nullptr;
-    nt_memory_allocator<std::uint8_t> m_allocator;
+    rwx_allocator<std::uint8_t> m_allocator;
     std::array<std::uint8_t, shell_size> m_shellcode;
   };
 
