@@ -1189,18 +1189,16 @@ namespace shadow {
       destructor_ptr_t m_destroyer{nullptr};
     };
 
+#ifdef SHADOWSYSCALLS_SEED
+    constexpr uint64_t library_seed = SHADOWSYSCALLS_SEED;
+#else
     constexpr uint64_t library_seed = []() consteval {
-      uint64_t hash = __cplusplus;
-
-      // \note: Fix note since 27.08.2024:
-      // We cannot use __TIME__ or alternatives here since
-      // such macros represent the build time of a translation
-      // unit, not the build time of the entire project.
-      for (auto c : __FILE__)
+      uint64_t hash = 0;
+      for (auto c : __DATE__)
         hash ^= static_cast<uint64_t>(c) * 0x3281238589232841ull;
-
       return hash;
     }();
+#endif
 
     // basic_hash class provides compile-time and runtime hash
     // computation. Uses FNV-1a hashing algorithm.
