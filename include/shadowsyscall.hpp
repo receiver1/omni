@@ -3586,17 +3586,21 @@ namespace shadow {
   template <concepts::function_type F, class... Args,
             typename Traits = concepts::function_traits<F>>
     requires(is_x64 && concepts::args_compatible_v<F, Args...>)
-  inline typename Traits::return_type shadowsyscall(hash64_t func_name, Args&&... args) {
-    syscaller<typename Traits::return_type> sc{func_name};
+  inline auto shadowsyscall(hash64_t func_name, Args&&... args) {
+    using return_type = typename Traits::return_type;
+
+    syscaller<return_type> sc{func_name};
     return sc(std::forward<Args>(args)...);
   }
 
   template <auto Func, class... Args, typename Traits = concepts::function_traits<decltype(Func)>>
     requires(is_x64 && concepts::args_compatible_v<decltype(Func), Args...>)
-  inline typename Traits::return_type shadowsyscall(Args&&... args) {
+  inline auto shadowsyscall(Args&&... args) {
+    using return_type = typename Traits::return_type;
+
     constexpr auto func_name = detail::extract_function_name<Func>();
     constexpr auto func_hash = hash64_t{func_name.data(), func_name.size()};
-    syscaller<typename Traits::return_type> sc{func_hash};
+    syscaller<return_type> sc{func_hash};
     return sc(std::forward<Args>(args)...);
   }
 
@@ -3616,51 +3620,57 @@ namespace shadow {
   template <concepts::function_type F, class... Args,
             typename Traits = concepts::function_traits<F>>
     requires(concepts::args_compatible_v<F, Args...>)
-  inline typename Traits::return_type shadowcall(hash64_t function_name, Args&&... args) {
+  inline auto shadowcall(hash64_t function_name, Args&&... args) {
+    using return_type = typename Traits::return_type;
+
     if constexpr (Traits::is_void) {
-      importer<typename Traits::return_type>{function_name}(std::forward<Args>(args)...);
+      importer<return_type>{function_name}(std::forward<Args>(args)...);
     } else {
-      return importer<typename Traits::return_type>{function_name}(std::forward<Args>(args)...);
+      return importer<return_type>{function_name}(std::forward<Args>(args)...);
     }
   }
 
   template <concepts::function_type F, class... Args,
             typename Traits = concepts::function_traits<F>>
     requires(concepts::args_compatible_v<F, Args...>)
-  inline typename Traits::return_type shadowcall(hashpair export_and_module_names, Args&&... args) {
+  inline auto shadowcall(hashpair export_and_module_names, Args&&... args) {
+    using return_type = typename Traits::return_type;
+
     const auto& [export_name, module_name] = export_and_module_names;
     if constexpr (Traits::is_void) {
-      importer<typename Traits::return_type>{export_name, module_name}(std::forward<Args>(args)...);
+      importer<return_type>{export_name, module_name}(std::forward<Args>(args)...);
     } else {
-      return importer<typename Traits::return_type>{export_name,
-                                                    module_name}(std::forward<Args>(args)...);
+      return importer<return_type>{export_name, module_name}(std::forward<Args>(args)...);
     }
   }
 
   template <auto Func, class... Args, typename Traits = concepts::function_traits<decltype(Func)>>
     requires(concepts::args_compatible_v<decltype(Func), Args...>)
-  inline typename Traits::return_type shadowcall(Args&&... args) {
+  inline auto shadowcall(Args&&... args) {
+    using return_type = typename Traits::return_type;
+
     constexpr auto func_name = detail::extract_function_name<Func>();
     constexpr auto func_hash = hash64_t{func_name.data(), func_name.size()};
     if constexpr (Traits::is_void) {
-      importer<typename Traits::return_type>{func_hash}(std::forward<Args>(args)...);
+      importer<return_type>{func_hash}(std::forward<Args>(args)...);
     } else {
-      return importer<typename Traits::return_type>{func_hash}(std::forward<Args>(args)...);
+      return importer<return_type>{func_hash}(std::forward<Args>(args)...);
     }
   }
 
   template <auto Func, detail::fixed_string ModuleName, class... Args,
             typename Traits = concepts::function_traits<decltype(Func)>>
     requires(concepts::args_compatible_v<decltype(Func), Args...>)
-  inline typename Traits::return_type shadowcall(Args&&... args) {
+  inline auto shadowcall(Args&&... args) {
+    using return_type = typename Traits::return_type;
+
     constexpr auto func_name = detail::extract_function_name<Func>();
     constexpr auto func_hash = hash64_t{func_name.data(), func_name.size()};
     constexpr auto module_hash = hash64_t{ModuleName.value};
     if constexpr (Traits::is_void) {
-      importer<typename Traits::return_type>{func_hash, module_hash}(std::forward<Args>(args)...);
+      importer<return_type>{func_hash, module_hash}(std::forward<Args>(args)...);
     } else {
-      return importer<typename Traits::return_type>{func_hash,
-                                                    module_hash}(std::forward<Args>(args)...);
+      return importer<return_type>{func_hash, module_hash}(std::forward<Args>(args)...);
     }
   }
 
