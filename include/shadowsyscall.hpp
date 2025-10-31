@@ -100,10 +100,14 @@ namespace shadow::concepts {
 #ifdef SHADOW_RELAXED_POINTER_COMPAT
   constexpr bool allow_any_ptr_for_ptr_param = true;  // U* -> T*
   constexpr bool allow_voidptr_for_ptr_param = true;  // void* -> T*
-  constexpr bool allow_integrals_for_ptr_param = true;
 #else
   constexpr bool allow_any_ptr_for_ptr_param = false;
   constexpr bool allow_voidptr_for_ptr_param = false;
+#endif
+
+#ifdef SHADOW_ALLOW_INTEGRAL_AS_PTR
+  constexpr bool allow_integrals_for_ptr_param = true;
+#else
   constexpr bool allow_integrals_for_ptr_param = false;
 #endif
 

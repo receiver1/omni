@@ -5,6 +5,7 @@
 #include <cstring>
 
 #define SHADOW_RELAXED_POINTER_COMPAT  // allows implicit pointer conversions
+#define SHADOW_ALLOW_INTEGRAL_AS_PTR
 #include "shadowsyscall.hpp"
 
 typedef void(CALLBACK* PRTL_THREAD_START_ROUTINE)(LPVOID);
