@@ -60,6 +60,8 @@ namespace shadow::concepts {
   template <typename Ty>
   concept chrono_duration =
       std::is_base_of_v<std::chrono::duration<typename Ty::rep, typename Ty::period>, Ty>;
+  template <typename Ty>
+  concept function_type = std::is_pointer_v<Ty> && std::is_function_v<std::remove_pointer_t<Ty>>;
 
   template <typename Ty>
   concept fundamental = [] {
@@ -68,6 +70,102 @@ namespace shadow::concepts {
                   "Type should be fundamental.");
     return true;
   }();
+
+  template <typename>
+  struct function_traits;
+
+#if defined(_MSC_VER) && _WIN32
+  // I'm tired. I give up. I don't know how to overload
+  // calling conventions in C++, so on x86 MSVC we will
+  // only support the WinAPI convention; functions with
+  // __cdecl (CRT) conventions on x86 will not be
+  // available for typed calls. PRs are welcome.
+  template <typename Ret, typename... Args>
+  struct function_traits<Ret(__stdcall*)(Args...)>
+#else
+  template <typename Ret, typename... Args>
+  struct function_traits<Ret (*)(Args...)>
+#endif
+  {
+    using return_type = Ret;
+    using argument_types = std::tuple<Args...>;
+
+    template <std::size_t N>
+    using argument_type = std::tuple_element_t<N, argument_types>;
+
+    static constexpr std::size_t arity = sizeof...(Args);
+    static constexpr bool is_void = std::is_void_v<Ret>;
+  };
+
+#ifdef SHADOW_RELAXED_POINTER_COMPAT
+  constexpr bool allow_any_ptr_for_ptr_param = true;  // U* -> T*
+  constexpr bool allow_voidptr_for_ptr_param = true;  // void* -> T*
+#else
+  constexpr bool allow_any_ptr_for_ptr_param = false;
+  constexpr bool allow_voidptr_for_ptr_param = false;
+#endif
+
+#ifdef SHADOW_ALLOW_INTEGRAL_AS_PTR
+  constexpr bool allow_integrals_for_ptr_param = true;
+#else
+  constexpr bool allow_integrals_for_ptr_param = false;
+#endif
+
+  template <typename ParamType, typename ArgType>
+  struct arg_compatible {
+    using ParamNoCVT = std::remove_cv_t<ParamType>;
+    using ArgDecayedT = std::decay_t<ArgType>;
+    using ArgNoRefT = std::remove_reference_t<ArgType>;
+
+    static constexpr bool is_pointer_compatible() {
+      if constexpr (std::is_null_pointer_v<ArgDecayedT>)
+        return true;
+
+      // let arrays pass, since string-literal is const char[N],
+      // they will be decayed to a const char* after
+      if constexpr (std::is_array_v<ArgNoRefT>)
+        return true;
+
+      if constexpr (std::is_pointer_v<ArgDecayedT>) {
+        if constexpr (allow_any_ptr_for_ptr_param)
+          return true;
+
+        if constexpr (allow_voidptr_for_ptr_param && std::is_same_v<ArgDecayedT, void*>)
+          return true;
+
+        using ParamPointeeT = std::remove_cv_t<std::remove_pointer_t<ParamNoCVT>>;
+        using ArgPointeeT = std::remove_cv_t<std::remove_pointer_t<ArgDecayedT>>;
+        return std::is_same_v<ParamPointeeT, ArgPointeeT>;
+      }
+
+      // allow passing NULL for a pointer
+      if constexpr (allow_integrals_for_ptr_param && std::is_integral_v<ArgDecayedT>) {
+        return true;
+      }
+
+      return false;
+    }
+
+    static constexpr bool value = std::is_pointer_v<ParamNoCVT>
+                                      ? is_pointer_compatible()
+                                      : std::is_convertible_v<ArgDecayedT, ParamNoCVT>;
+  };
+
+  template <typename F, typename... Args>
+  struct args_compatible {
+    using traits = function_traits<F>;
+    static constexpr bool count_ok = (sizeof...(Args) == traits::arity);
+
+    template <std::size_t... I>
+    static constexpr bool check(std::index_sequence<I...>) {
+      return (arg_compatible<typename traits::template argument_type<I>, Args>::value && ...);
+    }
+
+    static constexpr bool value = count_ok && check(std::make_index_sequence<traits::arity>{});
+  };
+
+  template <typename F, typename... Args>
+  inline constexpr bool args_compatible_v = args_compatible<F, Args...>::value;
 
   template <typename Ty>
   using non_void_t = std::conditional_t<std::is_void_v<Ty>, std::monostate, Ty>;
@@ -1123,6 +1221,22 @@ namespace shadow {
     struct type_format : std::formatter<typename Ty::underlying_t> {
       auto format(const Ty& value, std::format_context& ctx) const {
         return std::formatter<typename Ty::underlying_t>::format(value.get(), ctx);
+      }
+    };
+
+    template <std::size_t N>
+    struct fixed_string {
+      char value[N];
+
+      consteval fixed_string(const char (&str)[N]) {
+        for (std::size_t i = 0; i < N; ++i) {
+          value[i] = str[i];
+        }
+      }
+
+      constexpr std::string_view view() const {
+        // drop the trailing '\0' when exposing as string_view
+        return std::string_view{value, N - 1};
       }
     };
 
@@ -3033,6 +3147,58 @@ namespace shadow {
       return static_cast<tag_type>(arg);
     }
 
+    template <auto Fn>
+    consteval std::string_view extract_function_name() {
+#if defined(__clang__)
+      // "... extract_function_name() [Fn = &FunctionNameA]"
+      constexpr std::string_view pretty = __PRETTY_FUNCTION__;
+
+      // '&' is where a function name begins
+      constexpr auto name_start = pretty.rfind('&') + 1;
+      constexpr auto name_end = pretty.find(']');
+      constexpr auto func_name = pretty.substr(name_start, name_end - name_start);
+#elif defined(__GNUC__)
+      // "... extract_function_name() [with auto Fn = MessageBoxA; std::string_view = std::basic_string_view<char>]"
+      constexpr std::string_view pretty = __PRETTY_FUNCTION__;
+
+      constexpr std::string_view marker{" auto Fn = "};
+      constexpr auto name_start = pretty.find(marker) + marker.size();
+      constexpr auto name_end = pretty.find(';');
+      constexpr auto func_name = pretty.substr(name_start, name_end - name_start);
+#elif defined(_MSC_VER)
+      // "... extract_function_name<int __cdecl A::B::FunctionNameA(int, int*)>(void)"
+      constexpr std::string_view sig{__FUNCSIG__};
+      constexpr std::string_view marker{"extract_function_name<"};
+
+      constexpr std::size_t after = sig.find(marker) + marker.size();  // "... A::B::FunctionNameA("
+      constexpr std::size_t paren = sig.find('(', after);              // '(' of param list
+      constexpr auto left_part =
+          sig.substr(after, paren - after);  // "int __cdecl A::B::FunctionNameA"
+
+      // points to last letter of the name
+      constexpr std::size_t name_end = left_part.find_last_not_of(" \t");
+
+      // last whitespace before the name (space or tab) " A::B::FunctionNameA"
+      constexpr std::size_t sep = left_part.find_last_of(" \t", name_end);
+
+      // begin of the (possibly qualified) identifier
+      constexpr std::size_t name_begin = (sep == std::string_view::npos) ? 0 : sep + 1;
+
+      // "A::B::FunctionNameA" or just "FunctionNameA"
+      constexpr auto ident = left_part.substr(name_begin, name_end - name_begin + 1);
+
+      // drop scope qualifier (namespace/class) if present
+      // (it will never be the case with WinAPI functions, but anyway...)
+      constexpr std::size_t scope = ident.rfind("::");
+      constexpr auto func_name =
+          (scope == std::string_view::npos) ? ident : ident.substr(scope + 2);
+#else
+#error Unsupported compiler
+#endif
+      static_assert(!func_name.empty(), "Failed to extract function name");
+      return func_name;
+    }
+
   }  // namespace detail
 
   namespace mem {
@@ -3297,6 +3463,7 @@ namespace shadow {
   }  // namespace error
 
   template <concepts::fundamental Ty = long, bool IsTypeNtStatus = concepts::is_type_ntstatus<Ty>>
+    requires(shadow::is_x64)
   class syscaller {
    public:
     // Parser needs to return std::optional<uint32_t> and accept (syscaller&, address_t)
@@ -3312,7 +3479,6 @@ namespace shadow {
           }) {}
 
     template <typename... Args>
-      requires(shadow::is_x64)
     auto operator()(Args&&... args) noexcept {
       auto parse_result = resolve_service_number();
       if (!parse_result || m_last_error) {
@@ -3441,6 +3607,104 @@ namespace shadow {
     detail::exported_symbol m_export{0};
   };
 
+  template <typename Ty = long, class... Args>
+    requires(is_x64 && !concepts::function_type<Ty>)
+  inline Ty shadowsyscall(hash64_t syscall_name, Args&&... args) {
+    syscaller<Ty> sc{syscall_name};
+    return sc(std::forward<Args>(args)...);
+  }
+
+  template <concepts::function_type F, class... Args,
+            typename Traits = concepts::function_traits<F>>
+    requires(is_x64 && concepts::args_compatible_v<F, Args...>)
+  inline auto shadowsyscall(hash64_t func_name, Args&&... args) {
+    using return_type = typename Traits::return_type;
+
+    syscaller<return_type> sc{func_name};
+    return sc(std::forward<Args>(args)...);
+  }
+
+  template <auto Func, class... Args, typename Traits = concepts::function_traits<decltype(Func)>>
+    requires(is_x64 && concepts::args_compatible_v<decltype(Func), Args...>)
+  inline auto shadowsyscall(Args&&... args) {
+    using return_type = typename Traits::return_type;
+
+    constexpr auto func_name = detail::extract_function_name<Func>();
+    constexpr auto func_hash = hash64_t{func_name.data(), func_name.size()};
+    syscaller<return_type> sc{func_hash};
+    return sc(std::forward<Args>(args)...);
+  }
+
+  template <typename Ty = std::monostate, class... Args>
+    requires(!concepts::function_type<Ty>)
+  inline Ty shadowcall(hash64_t export_name, Args&&... args) {
+    return importer<Ty>{export_name}(std::forward<Args>(args)...);
+  }
+
+  template <typename Ty = std::monostate, class... Args>
+    requires(!concepts::function_type<Ty>)
+  inline Ty shadowcall(hashpair export_and_module_names, Args&&... args) {
+    const auto& [export_name, module_name] = export_and_module_names;
+    return importer<Ty>{export_name, module_name}(std::forward<Args>(args)...);
+  }
+
+  template <concepts::function_type F, class... Args,
+            typename Traits = concepts::function_traits<F>>
+    requires(concepts::args_compatible_v<F, Args...>)
+  inline auto shadowcall(hash64_t function_name, Args&&... args) {
+    using return_type = typename Traits::return_type;
+
+    if constexpr (Traits::is_void) {
+      importer<return_type>{function_name}(std::forward<Args>(args)...);
+    } else {
+      return importer<return_type>{function_name}(std::forward<Args>(args)...);
+    }
+  }
+
+  template <concepts::function_type F, class... Args,
+            typename Traits = concepts::function_traits<F>>
+    requires(concepts::args_compatible_v<F, Args...>)
+  inline auto shadowcall(hashpair export_and_module_names, Args&&... args) {
+    using return_type = typename Traits::return_type;
+
+    const auto& [export_name, module_name] = export_and_module_names;
+    if constexpr (Traits::is_void) {
+      importer<return_type>{export_name, module_name}(std::forward<Args>(args)...);
+    } else {
+      return importer<return_type>{export_name, module_name}(std::forward<Args>(args)...);
+    }
+  }
+
+  template <auto Func, class... Args, typename Traits = concepts::function_traits<decltype(Func)>>
+    requires(concepts::args_compatible_v<decltype(Func), Args...>)
+  inline auto shadowcall(Args&&... args) {
+    using return_type = typename Traits::return_type;
+
+    constexpr auto func_name = detail::extract_function_name<Func>();
+    constexpr auto func_hash = hash64_t{func_name.data(), func_name.size()};
+    if constexpr (Traits::is_void) {
+      importer<return_type>{func_hash}(std::forward<Args>(args)...);
+    } else {
+      return importer<return_type>{func_hash}(std::forward<Args>(args)...);
+    }
+  }
+
+  template <auto Func, detail::fixed_string ModuleName, class... Args,
+            typename Traits = concepts::function_traits<decltype(Func)>>
+    requires(concepts::args_compatible_v<decltype(Func), Args...>)
+  inline auto shadowcall(Args&&... args) {
+    using return_type = typename Traits::return_type;
+
+    constexpr auto func_name = detail::extract_function_name<Func>();
+    constexpr auto func_hash = hash64_t{func_name.data(), func_name.size()};
+    constexpr auto module_hash = hash64_t{ModuleName.value};
+    if constexpr (Traits::is_void) {
+      importer<return_type>{func_hash, module_hash}(std::forward<Args>(args)...);
+    } else {
+      return importer<return_type>{func_hash, module_hash}(std::forward<Args>(args)...);
+    }
+  }
+
 }  // namespace shadow
 
 namespace std {
@@ -3459,22 +3723,7 @@ namespace std {
   struct formatter<shadow::hash64_t> : shadow::detail::type_format<shadow::hash64_t> {};
 }  // namespace std
 
-template <typename Ty = long, class... Args>
-  requires(shadow::is_x64)
-inline Ty shadowsyscall(shadow::hash64_t syscall_name, Args&&... args) {
-  shadow::syscaller<std::remove_cv_t<Ty>> sc{syscall_name};
-  return sc(std::forward<Args>(args)...);
-}
-
-template <typename Ty = std::monostate, class... Args>
-inline Ty shadowcall(shadow::hash64_t export_name, Args&&... args) {
-  return shadow::importer<Ty>{export_name}(std::forward<Args>(args)...);
-}
-
-template <typename Ty = std::monostate, class... Args>
-inline Ty shadowcall(shadow::hashpair export_and_module_names, Args&&... args) {
-  const auto& [export_name, module_name] = export_and_module_names;
-  return shadow::importer<Ty>{export_name, module_name}(std::forward<Args>(args)...);
-}
+using shadow::shadowcall;
+using shadow::shadowsyscall;
 
 #endif
