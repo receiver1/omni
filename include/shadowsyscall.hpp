@@ -1207,8 +1207,6 @@ namespace shadow {
     // basic_hash class provides compile-time and runtime hash
     // computation. Uses FNV-1a hashing algorithm.
     // Case-insensitive by default.
-    // cs - case sensitivity
-    // seed - whether to use library seed in case reference fnv is desired.
     template <std::integral ValTy, hasher_opts Opts = default_hasher_opts>
     class basic_hash {
       constexpr static ValTy FNV_prime = (sizeof(ValTy) == 4) ? 16777619u : 1099511628211ull;
