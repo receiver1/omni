@@ -14,6 +14,8 @@
 #include <mutex>
 #include <shared_mutex>
 #include <unordered_map>
+#else
+#include <atomic>
 #endif
 
 #include <intrin.h>
