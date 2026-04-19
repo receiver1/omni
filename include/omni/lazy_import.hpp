@@ -1,6 +1,7 @@
 #pragma once
 
 #include <expected>
+#include <utility>
 
 #include "omni/concepts.hpp"
 #include "omni/detail/config.hpp"
@@ -61,10 +62,10 @@ namespace omni {
       }
 
       if constexpr (std::is_void_v<T>) {
-        std::ignore = export_->address.invoke(detail::normalize_pointer_argument(args)...);
+        std::ignore = export_->address.invoke(detail::normalize_pointer_argument(std::forward<Args>(args))...);
         return {};
       } else {
-        return export_->address.invoke<T>(detail::normalize_pointer_argument(args)...).value_or(T{});
+        return export_->address.invoke<T>(detail::normalize_pointer_argument(std::forward<Args>(args))...).value_or(T{});
       }
     }
 
@@ -142,6 +143,7 @@ namespace omni {
   class lazy_importer<T (*)(Params...)> : private lazy_importer<T> {
    public:
     using lazy_importer<T>::lazy_importer;
+    using lazy_importer<T>::module_export;
 
     std::expected<T, std::error_code> try_invoke(Params... args) {
       return lazy_importer<T>::try_invoke(args...);
@@ -153,10 +155,6 @@ namespace omni {
 
     T operator()(Params... args) {
       return lazy_importer<T>::invoke(args...);
-    }
-
-    [[nodiscard]] omni::module_export module_export() const noexcept {
-      return lazy_importer<T>::module_export();
     }
   };
 
@@ -165,6 +163,7 @@ namespace omni {
   class lazy_importer<T(__stdcall*)(Params...)> : private lazy_importer<T> {
    public:
     using lazy_importer<T>::lazy_importer;
+    using lazy_importer<T>::module_export;
 
     std::expected<T, std::error_code> try_invoke(Params... args) {
       return lazy_importer<T>::try_invoke(args...);
@@ -176,10 +175,6 @@ namespace omni {
 
     T operator()(Params... args) {
       return lazy_importer<T>::invoke(args...);
-    }
-
-    [[nodiscard]] omni::module_export module_export() const noexcept {
-      return lazy_importer<T>::module_export();
     }
   };
 #endif
@@ -230,6 +225,7 @@ namespace omni {
 
   template <concepts::function_pointer F, concepts::hash Hasher, class... Args>
   inline auto lazy_import(Hasher export_name, Args&&... args) {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
     return lazy_importer<F>{export_name}.invoke(std::forward<Args>(args)...);
   }
 
@@ -241,6 +237,7 @@ namespace omni {
   template <concepts::function_pointer F, concepts::hash Hasher, class... Args>
   inline auto lazy_import(omni::hash_pair<Hasher> export_and_module_names, Args&&... args) {
     auto [export_name, module_name] = export_and_module_names;
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
     return lazy_importer<F>{export_name, module_name}.invoke(std::forward<Args>(args)...);
   }
 

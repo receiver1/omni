@@ -1,5 +1,6 @@
 #pragma once
 
+#include <iterator>
 #include <string_view>
 
 namespace omni::detail {
@@ -15,7 +16,7 @@ namespace omni::detail {
     }
 
     [[nodiscard]] constexpr std::string_view view() const {
-      return std::string_view{value, N - 1};
+      return std::string_view{std::data(value), N - 1};
     }
   };
 

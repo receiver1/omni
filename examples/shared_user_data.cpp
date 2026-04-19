@@ -1,6 +1,5 @@
 #include "omni/shared_user_data.hpp"
 
-#include <filesystem>
 #include <print>
 
 int main() {
