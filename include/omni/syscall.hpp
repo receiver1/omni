@@ -24,6 +24,7 @@ namespace omni {
   } // namespace detail
 
   template <typename T = omni::status>
+    requires(omni::detail::is_x64)
   class syscaller {
    public:
     explicit syscaller(concepts::hash auto export_name): syscall_id_(resolve_syscall_id(export_name)) {
@@ -124,6 +125,7 @@ namespace omni {
   };
 
   template <typename T, typename... Params>
+    requires(omni::detail::is_x64)
   class syscaller<T (*)(Params...)> {
    public:
     explicit syscaller(concepts::hash auto export_name): syscaller_(export_name) {}
