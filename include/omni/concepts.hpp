@@ -13,8 +13,7 @@ namespace omni::concepts {
 
   template <typename T>
   concept function_pointer =
-    std::is_pointer_v<std::remove_cvref_t<T>> &&
-    std::is_function_v<std::remove_pointer_t<std::remove_cvref_t<T>>>;
+    std::is_pointer_v<std::remove_cvref_t<T>> && std::is_function_v<std::remove_pointer_t<std::remove_cvref_t<T>>>;
 
   template <typename T>
   concept hashable = requires(T t) {
