@@ -1,4 +1,3 @@
-include(CTest)
 include(OmniUseBoostUT)
 
 message(STATUS "[OMNI] Configuring tests")

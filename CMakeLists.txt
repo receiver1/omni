@@ -27,5 +27,6 @@ if(OMNI_BUILD_EXAMPLES)
 endif()
 
 if(OMNI_BUILD_TESTS)
+  include(CTest)
   add_subdirectory(tests)
 endif()
