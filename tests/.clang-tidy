@@ -4,3 +4,4 @@ Checks: >
   -google-build-using-namespace,
   -readability-qualified-auto,
   -google-global-names-in-headers,
+  -bugprone-exception-escape,
