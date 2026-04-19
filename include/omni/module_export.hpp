@@ -38,7 +38,7 @@ namespace omni {
       std::uint32_t ordinal{};
       // Ordinal forwarder always starts from '#', skip it
       auto ordinal_str = function.substr(1);
-      auto result = std::from_chars(ordinal_str.data(), ordinal_str.data() + ordinal_str.size(), ordinal);
+      [[maybe_unused]] auto result = std::from_chars(ordinal_str.data(), ordinal_str.data() + ordinal_str.size(), ordinal);
       assert(result.ec == std::errc{});
       return ordinal;
     }

@@ -88,7 +88,7 @@ namespace omni::win {
     }
 
     std::uint16_t length_{0};
-    std::uint16_t max_length_{0};
+    [[maybe_unused]] std::uint16_t max_length_{0};
     pointer_type buffer_{nullptr};
   };
 
