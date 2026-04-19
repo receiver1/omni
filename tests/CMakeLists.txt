@@ -9,6 +9,11 @@ file(GLOB_RECURSE omni_unit_test_sources CONFIGURE_DEPENDS
 
 list(SORT omni_unit_test_sources)
 
+if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+  message(STATUS "[OMNI] Skipping syscall tests on x86")
+  list(REMOVE_ITEM omni_unit_test_sources "${CMAKE_CURRENT_LIST_DIR}/syscall.cpp")
+endif()
+
 set(omni_unit_test_main "${CMAKE_CURRENT_LIST_DIR}/main.cpp")
 list(REMOVE_ITEM omni_unit_test_sources "${omni_unit_test_main}")
 
