@@ -6,9 +6,10 @@ list(APPEND CMAKE_MODULE_PATH
 )
 
 include(Prelude)
-include(OmniOptions)
 
 project(omni_cpp_library LANGUAGES C CXX)
+
+include(OmniOptions)
 
 if (PROJECT_IS_TOP_LEVEL)
   set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
