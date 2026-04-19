@@ -11,8 +11,8 @@ namespace tests = omni::tests;
 
 namespace {
 
-  using get_module_handle_w_fn = HMODULE (*)(LPCWSTR);
-  using get_file_version_info_size_w_fn = DWORD (*)(LPCWSTR, LPDWORD);
+  using get_module_handle_w_fn = HMODULE(WINAPI*)(LPCWSTR);
+  using get_file_version_info_size_w_fn = DWORD(WINAPI*)(LPCWSTR, LPDWORD);
 
 #ifdef OMNI_HAS_CACHING
 
