@@ -2,6 +2,9 @@
 
 #include <compare>
 #include <cstdint>
+#include <format>
+#include <type_traits>
+#include <utility>
 
 namespace omni {
 
@@ -189,7 +192,9 @@ namespace omni {
   };
 
   struct status {
-    std::int32_t value{};
+    using value_type = std::int32_t;
+
+    value_type value{};
 
     status& operator=(std::int32_t val) noexcept {
       value = val;
@@ -270,3 +275,17 @@ namespace omni {
   };
 
 } // namespace omni
+
+template <>
+struct std::formatter<omni::status> : std::formatter<omni::status::value_type> {
+  auto format(const omni::status& status, std::format_context& ctx) const {
+    return std::formatter<omni::status::value_type>::format(status.value, ctx);
+  }
+};
+
+template <>
+struct std::formatter<omni::ntstatus> : std::formatter<std::underlying_type_t<omni::ntstatus>> {
+  auto format(const omni::ntstatus& status, std::format_context& ctx) const {
+    return std::formatter<std::underlying_type_t<omni::ntstatus>>::format(std::to_underlying(status), ctx);
+  }
+};

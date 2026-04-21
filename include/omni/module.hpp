@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <filesystem>
+#include <format>
 #include <iosfwd>
 #include <string>
 #include <string_view>
@@ -130,3 +131,14 @@ namespace omni {
   };
 
 } // namespace omni
+
+template <>
+struct std::formatter<omni::module> : std::formatter<std::string_view> {
+  auto format(const omni::module& module, std::format_context& ctx) const {
+    std::string module_name;
+    if (module.present()) {
+      module_name = module.name();
+    }
+    return std::formatter<std::string_view>{}.format(module_name, ctx);
+  }
+};

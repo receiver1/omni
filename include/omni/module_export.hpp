@@ -1,7 +1,10 @@
 ﻿#pragma once
 
+#include <array>
 #include <cassert>
 #include <cstdint>
+#include <format>
+#include <limits>
 #include <string_view>
 
 #include "omni/address.hpp"
@@ -70,3 +73,29 @@ namespace omni {
   };
 
 } // namespace omni
+
+template <>
+struct std::formatter<omni::module_export> : std::formatter<std::string_view> {
+  auto format(const omni::module_export& module_export, std::format_context& ctx) const {
+    if (!module_export.present()) {
+      return std::formatter<std::string_view, char>::format({}, ctx);
+    }
+
+    if (!module_export.is_ordinal_only()) {
+      return std::formatter<std::string_view, char>::format(module_export.name, ctx);
+    }
+
+    // Zero-allocation path for ordinal exports, since the formatter is
+    // required to write data from the view to the format_context::out()
+    // before exiting the scope
+    std::array<char, std::numeric_limits<std::uint32_t>::digits> ordinal_buf{};
+    ordinal_buf[0] = '#';
+
+    auto conversion_result =
+      std::to_chars(ordinal_buf.data() + 1, ordinal_buf.data() + ordinal_buf.size(), module_export.ordinal);
+    std::size_t digits_converted = conversion_result.ptr - ordinal_buf.data();
+
+    std::string_view ordinal_view(ordinal_buf.data(), digits_converted);
+    return std::formatter<std::string_view, char>::format(ordinal_view, ctx);
+  }
+};

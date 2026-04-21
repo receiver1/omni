@@ -10,6 +10,7 @@ namespace omni::detail {
     constexpr static auto FNV_offset_basis = (sizeof(T) == 4) ? 2166136261ULL : 14695981039346656037ULL;
 
    public:
+    constexpr static auto initial_value = FNV_offset_basis;
     using value_type = T;
 
     constexpr fnv1a_hash() = default;

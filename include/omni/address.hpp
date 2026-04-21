@@ -156,3 +156,10 @@ namespace omni {
   };
 
 } // namespace omni
+
+template <>
+struct std::formatter<omni::address> : std::formatter<omni::address::value_type> {
+  auto format(const omni::address& address, std::format_context& ctx) const {
+    return std::formatter<omni::address::value_type>::format(address.value(), ctx);
+  }
+};
