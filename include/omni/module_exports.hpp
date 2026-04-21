@@ -280,15 +280,15 @@ namespace omni {
       return {this, iteration_size<iteration_kind::all>()};
     }
 
-    [[nodiscard]] all_range all() const noexcept {
+    [[nodiscard]] all_range all() const& noexcept {
       return all_range{this};
     }
 
-    [[nodiscard]] ordinal_range ordinal() const noexcept {
+    [[nodiscard]] ordinal_range ordinal() const& noexcept {
       return ordinal_range{this};
     }
 
-    [[nodiscard]] named_range named() const noexcept {
+    [[nodiscard]] named_range named() const& noexcept {
       return named_range{this};
     }
 
@@ -320,6 +320,10 @@ namespace omni {
 
       return std::ranges::find_if(*this, predicate);
     }
+
+    [[nodiscard]] all_range all() const&& = delete;
+    [[nodiscard]] ordinal_range ordinal() const&& = delete;
+    [[nodiscard]] named_range named() const&& = delete;
 
    private:
     template <iteration_kind IterationKind>
