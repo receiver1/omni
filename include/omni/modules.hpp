@@ -9,6 +9,7 @@
 #include "omni/hash.hpp"
 #include "omni/module.hpp"
 #include "omni/module_export.hpp"
+#include "omni/win/peb.hpp"
 
 namespace omni {
 
@@ -20,13 +21,19 @@ namespace omni {
       end_ = entry;
     }
 
-    modules& skip(std::size_t count = 1) {
-      for (std::size_t i{}; i < count; i++) {
+    modules& skip(std::size_t count = 1) & {
+      for (std::size_t i{}; i < count; ++i) {
         if (begin_ != end_) {
           begin_ = begin_->forward_link;
         }
       }
       return *this;
+    }
+
+    modules skip(std::size_t count = 1) && {
+      auto copy = *this;
+      copy.skip(count);
+      return copy;
     }
 
     class iterator {
