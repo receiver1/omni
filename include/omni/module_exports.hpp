@@ -272,11 +272,11 @@ namespace omni {
     static_assert(std::bidirectional_iterator<ordinal_iterator>);
     static_assert(std::bidirectional_iterator<named_iterator>);
 
-    [[nodiscard]] iterator begin() const noexcept {
+    [[nodiscard]] iterator begin() const& noexcept {
       return {this, 0};
     }
 
-    [[nodiscard]] iterator end() const noexcept {
+    [[nodiscard]] iterator end() const& noexcept {
       return {this, iteration_size<iteration_kind::all>()};
     }
 
@@ -292,15 +292,15 @@ namespace omni {
       return named_range{this};
     }
 
-    [[nodiscard]] iterator find(concepts::hash auto export_name) const noexcept {
+    [[nodiscard]] iterator find(concepts::hash auto export_name) const& noexcept {
       return find_by_name_hash(export_name);
     }
 
-    [[nodiscard]] iterator find(default_hash export_name) const noexcept {
+    [[nodiscard]] iterator find(default_hash export_name) const& noexcept {
       return find_by_name_hash(export_name);
     }
 
-    [[nodiscard]] iterator find(std::uint32_t ordinal_value, omni::use_ordinal_t) const noexcept {
+    [[nodiscard]] iterator find(std::uint32_t ordinal_value, omni::use_ordinal_t) const& noexcept {
       if (export_dir_ == nullptr || ordinal_value < export_dir_->base) {
         return end();
       }
@@ -313,7 +313,7 @@ namespace omni {
       return {this, function_index};
     }
 
-    [[nodiscard]] iterator find_if(std::predicate<const typename iterator::value_type&> auto predicate) const {
+    [[nodiscard]] iterator find_if(std::predicate<const typename iterator::value_type&> auto predicate) const& {
       if (export_dir_ == nullptr) {
         return end();
       }
@@ -321,9 +321,19 @@ namespace omni {
       return std::ranges::find_if(*this, predicate);
     }
 
-    [[nodiscard]] all_range all() const&& = delete;
-    [[nodiscard]] ordinal_range ordinal() const&& = delete;
-    [[nodiscard]] named_range named() const&& = delete;
+    // NOLINTBEGIN(modernize-use-nodiscard)
+
+    iterator begin() const&& = delete;
+    iterator end() const&& = delete;
+    all_range all() const&& = delete;
+    ordinal_range ordinal() const&& = delete;
+    named_range named() const&& = delete;
+    iterator find(concepts::hash auto export_name) const&& = delete;
+    iterator find(default_hash export_name) const&& = delete;
+    iterator find(std::uint32_t ordinal_value, omni::use_ordinal_t) const&& = delete;
+    iterator find_if(std::predicate<const typename iterator::value_type&> auto predicate) const&& = delete;
+
+    // NOLINTEND(modernize-use-nodiscard)
 
    private:
     template <iteration_kind IterationKind>
