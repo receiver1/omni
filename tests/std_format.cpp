@@ -1,10 +1,11 @@
+#include <limits>
+#include <utility>
+
 #include "omni/hash.hpp"
 #include "omni/module_export.hpp"
 #include "omni/modules.hpp"
 #include "omni/status.hpp"
 #include "test_utils.hpp"
-#include <limits>
-#include <utility>
 
 ut::suite<"std::format"> std_format_suite = [] {
   "formats initialized and uninitialized omni::module"_test = [] {
@@ -17,7 +18,6 @@ ut::suite<"std::format"> std_format_suite = [] {
 
   "formats initialized and uninitialized omni::module_export"_test = [] {
     auto kernel32 = omni::get_module("kernel32.dll");
-    auto kernel32_ordinals = kernel32.exports().ordinal();
 
     omni::module_export empty_export;
     omni::module_export ordinal_export;
@@ -25,7 +25,8 @@ ut::suite<"std::format"> std_format_suite = [] {
 
     // Find first ordinal-only export across all modules
     for (const auto& module : omni::modules{}) {
-      auto ordinal_exports = module.exports().ordinal();
+      auto exports = module.exports();
+      auto ordinal_exports = exports.ordinal();
       if (auto it = ordinal_exports.begin(); it != ordinal_exports.end()) {
         ordinal_export = *it;
         break;
