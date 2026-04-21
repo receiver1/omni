@@ -1,70 +1,21 @@
 #include <Windows.h>
 
-#include <array>
-#include <boost/ut.hpp>
 #include <filesystem>
 #include <set>
 #include <utility>
 #include <vector>
 
 #include "omni/modules.hpp"
+#include "test_utils.hpp"
 
-namespace ut = boost::ut;
-using ut::expect;
-using ut::fatal;
-using ut::operator""_test;
-
-namespace {
-
-  [[nodiscard]] std::filesystem::path get_module_path(HMODULE module_handle) {
-    std::array<wchar_t, 32768> buffer{};
-    auto length = ::GetModuleFileNameW(module_handle, buffer.data(), static_cast<DWORD>(buffer.size()));
-    return {std::wstring_view{buffer.data(), length}};
-  }
-
-  struct loaded_library {
-    explicit loaded_library(const wchar_t* module_name) noexcept
-      : handle{::LoadLibraryExW(module_name, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32)} {
-      if (handle == nullptr) {
-        handle = ::LoadLibraryW(module_name);
-      }
-    }
-
-    loaded_library(const loaded_library&) = delete;
-    loaded_library& operator=(const loaded_library&) = delete;
-
-    loaded_library(loaded_library&& other) noexcept: handle{std::exchange(other.handle, nullptr)} {}
-    loaded_library& operator=(loaded_library&& other) noexcept {
-      if (this != &other) {
-        if (handle != nullptr) {
-          ::FreeLibrary(handle);
-        }
-        handle = std::exchange(other.handle, nullptr);
-      }
-      return *this;
-    }
-
-    ~loaded_library() {
-      if (handle != nullptr) {
-        ::FreeLibrary(handle);
-      }
-    }
-
-    [[nodiscard]] explicit operator bool() const noexcept {
-      return handle != nullptr;
-    }
-
-    HMODULE handle{};
-  };
-
-} // namespace
+namespace tests = omni::tests;
 
 ut::suite<"omni::modules"> modules_suite = [] {
   "begin points at the process image"_test = [] {
     omni::modules loaded_modules{};
     HMODULE executable_handle = ::GetModuleHandleW(nullptr);
     auto first = loaded_modules.begin();
-    auto executable_path = get_module_path(executable_handle);
+    auto executable_path = tests::get_module_path(executable_handle);
     auto first_path = first->system_path();
 
     expect(executable_handle != nullptr);
@@ -156,7 +107,7 @@ ut::suite<"omni::modules"> modules_suite = [] {
   };
 
   "iteration sees modules loaded through WinAPI"_test = [] {
-    loaded_library version_dll{L"version.dll"};
+    tests::loaded_library version_dll{L"version.dll"};
     omni::default_hash version_hash{L"version"};
     omni::default_hash version_dll_hash{L"version.dll"};
 

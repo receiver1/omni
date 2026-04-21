@@ -1,15 +1,10 @@
 #include <Windows.h>
 
-#include <boost/ut.hpp>
 #include <cstdint>
 #include <optional>
 
 #include "omni/syscall.hpp"
-
-namespace ut = boost::ut;
-using ut::expect;
-using ut::fatal;
-using ut::operator""_test;
+#include "test_utils.hpp"
 
 namespace {
 

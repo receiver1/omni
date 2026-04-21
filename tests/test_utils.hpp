@@ -2,6 +2,7 @@
 
 #include <Windows.h>
 
+#include <filesystem>
 #include <span>
 #include <string_view>
 #include <utility>
@@ -27,6 +28,12 @@ namespace omni::tests {
     std::uint32_t ordinal{};
     bool is_forwarded{};
   };
+
+  [[nodiscard]] inline std::filesystem::path get_module_path(HMODULE module_handle) {
+    std::array<wchar_t, 32768> buffer{};
+    auto length = ::GetModuleFileNameW(module_handle, buffer.data(), static_cast<DWORD>(buffer.size()));
+    return {std::wstring_view{buffer.data(), length}};
+  }
 
   [[nodiscard]] inline omni::module get_loaded_module(HMODULE module_handle) {
     return omni::get_module(omni::address{module_handle});
