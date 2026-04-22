@@ -13,4 +13,9 @@ foreach(source IN LISTS omni_example_sources)
 
   add_executable("${example_name}" "${source}")
   target_link_libraries("${example_name}" PRIVATE omni::omni)
+
+  if(MINGW AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # MinGW/libstdc++ keeps std::print terminal support in stdc++exp.
+    target_link_libraries("${example_name}" PRIVATE stdc++exp)
+  endif()
 endforeach()
