@@ -29,37 +29,44 @@ namespace omni::detail {
 
     inplace_function() = default;
 
-    template <typename F, typename DecayedF = std::decay_t<F>>
-      requires(!std::same_as<DecayedF, inplace_function> && std::is_invocable_r_v<T, DecayedF&, Args...> &&
-               std::is_copy_constructible_v<DecayedF>)
-    explicit(false) inplace_function(F&& func) {
-      emplace<DecayedF>(std::forward<F>(func));
+    template <typename F, typename DecayedFunction = std::decay_t<F>>
+      requires(!std::same_as<DecayedFunction, inplace_function> && std::is_invocable_r_v<T, DecayedFunction&, Args...> &&
+               std::is_copy_constructible_v<DecayedFunction>)
+    explicit(false) inplace_function(F&& function_object) {
+      emplace<DecayedFunction>(std::forward<F>(function_object));
     }
 
     inplace_function(const inplace_function& other) {
       copy_from(other);
     }
 
-    inplace_function(inplace_function&& other) noexcept {
-      move_from(std::move(other));
+    inplace_function(inplace_function&& other) { // NOLINT(*-noexcept-move*)
+      move_from(other);
     }
 
     inplace_function& operator=(const inplace_function& other) {
-      if (this != &other) {
-        inplace_function temp(other);
-        reset();
-        move_from(std::move(temp));
+      if (this == &other) {
+        return *this;
       }
 
+      if (!other) {
+        reset();
+        return *this;
+      }
+
+      inplace_function temp(other);
+      reset();
+      move_from(temp);
       return *this;
     }
 
-    inplace_function& operator=(inplace_function&& other) noexcept {
-      if (this != &other) {
-        reset();
-        move_from(std::move(other));
+    inplace_function& operator=(inplace_function&& other) { // NOLINT(*-noexcept-move*)
+      if (this == &other) {
+        return *this;
       }
 
+      reset();
+      move_from(other);
       return *this;
     }
 
@@ -67,15 +74,15 @@ namespace omni::detail {
       reset();
     }
 
-    void swap(inplace_function& other) noexcept {
+    void swap(inplace_function& other) { // NOLINT(*-noexcept-swap)
       if (this == &other) {
         return;
       }
 
       inplace_function temp;
-      temp.move_from(std::move(*this));
-      move_from(std::move(other));
-      other.move_from(std::move(temp));
+      temp.move_from(*this);
+      move_from(other);
+      other.move_from(temp);
     }
 
     [[nodiscard]] explicit operator bool() const noexcept {
@@ -83,15 +90,11 @@ namespace omni::detail {
     }
 
     T operator()(Args... args) {
-      if (invoker_ == nullptr) {
-#ifdef OMNI_HAS_EXCEPTIONS
-        throw std::bad_function_call();
-#else
-        std::abort();
-#endif
-      }
+      return invoke(std::forward<Args>(args)...);
+    }
 
-      return invoker_(storage_ptr(), std::forward<Args>(args)...);
+    T operator()(Args... args) const {
+      return invoke(std::forward<Args>(args)...);
     }
 
    private:
@@ -113,6 +116,19 @@ namespace omni::detail {
       return static_cast<const void*>(storage_);
     }
 
+    template <typename... CallArgs>
+    T invoke(CallArgs&&... args) const {
+      if (invoker_ == nullptr) {
+#ifdef OMNI_HAS_EXCEPTIONS
+        throw std::bad_function_call();
+#else
+        std::abort();
+#endif
+      }
+
+      return invoker_(const_cast<void*>(storage_ptr()), std::forward<CallArgs>(args)...);
+    }
+
     template <typename F, typename... CtorArgs>
     void emplace(CtorArgs&&... args) {
       static_assert(sizeof(F) <= storage_size, "Function object too large");
@@ -121,21 +137,21 @@ namespace omni::detail {
       new (storage_ptr()) F(std::forward<CtorArgs>(args)...);
 
       invoker_ = [](void* ptr, Args&&... args) -> T {
-        return (*storage_as<F>(ptr))(std::forward<Args>(args)...);
+        return std::invoke(*storage_as<F>(ptr), std::forward<Args>(args)...);
       };
 
-      copier_ = [](void* dst, const void* src) {
-        new (dst) F(*storage_as<F>(src));
+      copier_ = [](void* destination, const void* source) {
+        new (destination) F(*storage_as<F>(source));
       };
 
-      mover_ = [](void* dst, void* src) {
+      mover_ = [](void* destination, void* source) {
         if constexpr (std::is_move_constructible_v<F>) {
-          new (dst) F(std::move(*storage_as<F>(src)));
+          new (destination) F(std::move(*storage_as<F>(source)));
         } else {
-          new (dst) F(*storage_as<F>(src));
+          new (destination) F(*storage_as<F>(source));
         }
 
-        std::destroy_at(storage_as<F>(src));
+        std::destroy_at(storage_as<F>(source));
       };
 
       destroyer_ = [](void* ptr) {
@@ -155,8 +171,7 @@ namespace omni::detail {
       destroyer_ = other.destroyer_;
     }
 
-    // NOLINTNEXTLINE(*-param-not-moved)
-    void move_from(inplace_function&& other) {
+    void move_from(inplace_function& other) {
       if (!other) {
         return;
       }
