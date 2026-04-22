@@ -2,6 +2,12 @@
 
 #include <cstdint>
 
+#include "omni/detail/config.hpp"
+
+#if defined(OMNI_COMPILER_MSVC_COMPAT)
+#  include <intrin.h>
+#endif
+
 #include "omni/address.hpp"
 #include "omni/win/unicode_string.hpp"
 
@@ -98,10 +104,22 @@ namespace omni::win {
     std::uint8_t reserved10[96];
 
     [[nodiscard]] static auto ptr() {
-#if defined(_M_X64)
+#if defined(OMNI_ARCH_X64)
+#  if defined(OMNI_COMPILER_MSVC_COMPAT)
       return reinterpret_cast<const PEB*>(__readgsqword(0x60));
-#elif defined(_M_IX86)
+#  else
+      std::uintptr_t address{};
+      __asm__ __volatile__("movq %%gs:0x60, %0" : "=r"(address));
+      return reinterpret_cast<const PEB*>(address);
+#  endif
+#elif defined(OMNI_ARCH_X86)
+#  if defined(OMNI_COMPILER_MSVC_COMPAT)
       return reinterpret_cast<const PEB*>(__readfsdword(0x30));
+#  else
+      std::uintptr_t address{};
+      __asm__ __volatile__("movl %%fs:0x30, %0" : "=r"(address));
+      return reinterpret_cast<const PEB*>(address);
+#  endif
 #else
 #  error Unsupported platform.
 #endif

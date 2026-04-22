@@ -2,11 +2,13 @@
 
 #include <string_view>
 
+#include "omni/detail/config.hpp"
+
 namespace omni::detail {
 
   template <auto Fn>
   consteval std::string_view extract_function_name() {
-#if defined(__clang__)
+#if defined(OMNI_COMPILER_CLANG)
     // "... extract_function_name() [Fn = &FunctionNameA]"
     constexpr std::string_view pretty = __PRETTY_FUNCTION__;
 
@@ -14,7 +16,7 @@ namespace omni::detail {
     constexpr auto name_start = pretty.rfind('&') + 1;
     constexpr auto name_end = pretty.find(']');
     constexpr auto func_name = pretty.substr(name_start, name_end - name_start);
-#elif defined(__GNUC__)
+#elif defined(OMNI_COMPILER_GCC)
     // "... extract_function_name() [with auto Fn = MessageBoxA; std::string_view = std::basic_string_view<char>]"
     constexpr std::string_view pretty = __PRETTY_FUNCTION__;
 
@@ -22,7 +24,7 @@ namespace omni::detail {
     constexpr auto name_start = pretty.find(marker) + marker.size();
     constexpr auto name_end = pretty.find(';');
     constexpr auto func_name = pretty.substr(name_start, name_end - name_start);
-#elif defined(_MSC_VER)
+#elif defined(OMNI_COMPILER_MSVC)
     // "... extract_function_name<int __cdecl A::B::FunctionNameA(int, int*)>(void)"
     constexpr std::string_view sig{__FUNCSIG__};
     constexpr std::string_view marker{"extract_function_name<"};
