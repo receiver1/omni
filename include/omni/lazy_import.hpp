@@ -62,10 +62,11 @@ namespace omni {
       }
 
       if constexpr (std::is_void_v<T>) {
-        std::ignore = export_->address.invoke(detail::normalize_pointer_argument(std::forward<Args>(args))...);
+        std::ignore = export_->address.template invoke<void>(detail::normalize_pointer_argument(std::forward<Args>(args))...);
         return {};
       } else {
-        return export_->address.invoke<T>(detail::normalize_pointer_argument(std::forward<Args>(args))...).value_or(T{});
+        auto result = export_->address.template invoke<T>(detail::normalize_pointer_argument(std::forward<Args>(args))...);
+        return result.value_or(T{});
       }
     }
 
@@ -158,7 +159,7 @@ namespace omni {
     }
   };
 
-#if defined(_M_IX86)
+#if defined(OMNI_ARCH_X86)
   template <typename T, typename... Params>
   class lazy_importer<T(__stdcall*)(Params...)> : private lazy_importer<T> {
    public:

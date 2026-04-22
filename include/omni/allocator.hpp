@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include "omni/address.hpp"
 #include "omni/detail/config.hpp"
 #include "omni/hash.hpp"
@@ -8,8 +10,8 @@
 
 namespace omni {
   namespace detail {
-    inline std::atomic<omni::address> cached_alloc_proc{omni::address{0}};
-    inline std::atomic<omni::address> cached_free_proc{omni::address{0}};
+    inline std::atomic<omni::address::value_type> cached_alloc_proc{};
+    inline std::atomic<omni::address::value_type> cached_free_proc{};
   } // namespace detail
 
   namespace mem {
@@ -101,10 +103,10 @@ namespace omni {
     static void* virtual_alloc(void* address, std::uint64_t allocation_size, std::uint32_t alloc_type, std::uint32_t protect) {
       void* current_process{reinterpret_cast<void*>(-1)};
 
-      auto nt_allocate_mem = detail::cached_alloc_proc.load(std::memory_order_acquire);
+      auto nt_allocate_mem = omni::address{detail::cached_alloc_proc.load(std::memory_order_acquire)};
       if (!nt_allocate_mem) {
         auto nt_alloc_export = omni::get_export("NtAllocateVirtualMemory", "ntdll.dll");
-        detail::cached_alloc_proc.store(nt_alloc_export.address, std::memory_order_release);
+        detail::cached_alloc_proc.store(nt_alloc_export.address.value(), std::memory_order_release);
         nt_allocate_mem = nt_alloc_export.address;
       }
 
@@ -114,18 +116,22 @@ namespace omni {
 
       const auto allocation_type = alloc_type & 0xFFFFFFC0;
 
-      auto result =
-        nt_allocate_mem.invoke<omni::status>(current_process, &address, 0ULL, &allocation_size, allocation_type, protect);
-      return result->is_success() ? address : nullptr;
+      auto result = nt_allocate_mem.template invoke<omni::status>(current_process,
+        &address,
+        0ULL,
+        &allocation_size,
+        allocation_type,
+        protect);
+      return result.has_value() && result->is_success() ? address : nullptr;
     }
 
     static bool virtual_free(void* address, std::uint64_t size, std::uint32_t free_type) {
       void* current_process{reinterpret_cast<void*>(-1)};
 
-      auto nt_free_mem = detail::cached_free_proc.load(std::memory_order_acquire);
+      auto nt_free_mem = omni::address{detail::cached_free_proc.load(std::memory_order_acquire)};
       if (!nt_free_mem) {
         auto nt_free = omni::get_export("NtFreeVirtualMemory", "ntdll.dll");
-        detail::cached_free_proc.store(nt_free.address);
+        detail::cached_free_proc.store(nt_free.address.value(), std::memory_order_release);
         nt_free_mem = nt_free.address;
       }
 
@@ -133,8 +139,8 @@ namespace omni {
         return false;
       }
 
-      omni::status status;
-      return nt_free_mem.invoke<omni::status>(current_process, &address, &size, free_type)->is_success();
+      auto status = nt_free_mem.template invoke<omni::status>(current_process, &address, &size, free_type);
+      return status.has_value() && status->is_success();
     }
 
     std::uint32_t flags_{AllocFlags};

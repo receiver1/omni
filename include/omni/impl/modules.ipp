@@ -84,7 +84,7 @@ namespace omni {
     }
 
     if (export_it->is_forwarded) {
-      return detail::resolve_forwarded_export<decltype(export_name)>(export_it->address).value_or({});
+      return detail::resolve_forwarded_export<decltype(export_name)>(export_it->address).value_or(module_export{});
     }
 
     return *export_it;
@@ -131,7 +131,7 @@ namespace omni {
     }
 
     if (export_it->is_forwarded) {
-      return detail::resolve_forwarded_export<Hasher>(export_it->address).value_or({});
+      return detail::resolve_forwarded_export<Hasher>(export_it->address).value_or(module_export{});
     }
 
     return *export_it;

@@ -2,9 +2,11 @@
 
 #include <concepts>
 #include <cstdint>
+#include <format>
 #include <iostream>
 #include <optional>
 #include <span>
+#include <variant>
 
 #include "omni/concepts.hpp"
 
@@ -72,15 +74,25 @@ namespace omni {
     }
 
     template <typename T = std::monostate, typename... Args>
-    [[nodiscard]] std::optional<T> invoke(Args&&... args) const noexcept {
+    [[nodiscard]] auto invoke(Args&&... args) const noexcept {
+      using target_function_t = T(__stdcall*)(std::decay_t<Args>...);
+
       if (address_ == 0) {
-        return std::nullopt;
+        if constexpr (std::is_void_v<T>) {
+          return false;
+        } else {
+          return std::optional<T>{};
+        }
       }
 
-      using target_function_t = T(__stdcall*)(std::decay_t<Args>...);
       const auto target_function = reinterpret_cast<target_function_t>(address_);
 
-      return target_function(std::forward<Args>(args)...);
+      if constexpr (std::is_void_v<T>) {
+        target_function(std::forward<Args>(args)...);
+        return true;
+      } else {
+        return std::optional<T>{target_function(std::forward<Args>(args)...)};
+      }
     }
 
     constexpr explicit operator std::uintptr_t() const noexcept {
