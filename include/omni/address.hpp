@@ -24,7 +24,7 @@ namespace omni {
     // (since compiler is allowed to perform one user-defined conversion)
     constexpr explicit address(concepts::nullpointer auto) noexcept {}
 
-    constexpr explicit address(value_type address) noexcept: address_(address) {}
+    constexpr explicit(false) address(value_type address) noexcept: address_(address) {}
     constexpr explicit address(concepts::pointer auto ptr) noexcept: address_(reinterpret_cast<value_type>(ptr)) {}
     constexpr explicit address(std::ranges::contiguous_range auto range) noexcept
       : address_(reinterpret_cast<value_type>(range.data())) {}
@@ -121,12 +121,12 @@ namespace omni {
       return address_ == value;
     }
 
-    constexpr address operator+=(const address& rhs) noexcept {
+    constexpr address& operator+=(const address& rhs) noexcept {
       address_ += rhs.address_;
       return *this;
     }
 
-    constexpr address operator-=(const address& rhs) noexcept {
+    constexpr address& operator-=(const address& rhs) noexcept {
       address_ -= rhs.address_;
       return *this;
     }
