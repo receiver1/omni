@@ -2,8 +2,10 @@
 
 #include <Windows.h>
 
+#include <array>
 #include <filesystem>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -74,6 +76,92 @@ namespace omni::tests {
 
     HMODULE handle{};
   };
+
+  using is_api_set_implemented_fn = BOOL(APIENTRY*)(PCSTR);
+  using get_api_set_module_base_name_fn = HRESULT(APIENTRY*)(PCSTR, UINT32, PWSTR, UINT32*);
+
+  struct api_set_query_api {
+    api_set_query_api() noexcept: apiquery2{L"api-ms-win-core-apiquery-l2-1-0.dll"} {
+      HMODULE query_module = apiquery2.handle;
+      if (query_module == nullptr) {
+        query_module = ::GetModuleHandleW(L"kernelbase.dll");
+      }
+
+      if (query_module != nullptr) {
+        is_api_set_implemented =
+          reinterpret_cast<is_api_set_implemented_fn>(::GetProcAddress(query_module, "IsApiSetImplemented"));
+        get_api_set_module_base_name =
+          reinterpret_cast<get_api_set_module_base_name_fn>(::GetProcAddress(query_module, "GetApiSetModuleBaseName"));
+      }
+    }
+
+    [[nodiscard]] explicit operator bool() const noexcept {
+      return is_api_set_implemented != nullptr;
+    }
+
+    loaded_library apiquery2;
+    is_api_set_implemented_fn is_api_set_implemented{};
+    get_api_set_module_base_name_fn get_api_set_module_base_name{};
+  };
+
+  struct api_set_module_base_name_result {
+    HRESULT hr{};
+    std::wstring module_base_name;
+  };
+
+  [[nodiscard]] inline std::string narrow_ascii(std::wstring_view value) {
+    std::string result{};
+    result.reserve(value.size());
+
+    for (wchar_t ch : value) {
+      result.push_back(static_cast<char>(ch));
+    }
+
+    return result;
+  }
+
+  [[nodiscard]] inline api_set_module_base_name_result query_api_set_module_base_name(const api_set_query_api& api_query,
+    std::string_view contract_name) {
+    if (api_query.get_api_set_module_base_name != nullptr) {
+      std::array<wchar_t, MAX_PATH> module_base_name_buffer{};
+      std::string contract_name_storage{contract_name};
+      UINT32 actual_name_length{};
+      HRESULT hr = api_query.get_api_set_module_base_name(contract_name_storage.c_str(),
+        static_cast<UINT32>(module_base_name_buffer.size()),
+        module_base_name_buffer.data(),
+        &actual_name_length);
+
+      if (SUCCEEDED(hr)) {
+        std::wstring module_base_name{module_base_name_buffer.data(),
+          actual_name_length == 0U ? 0U : static_cast<std::size_t>(actual_name_length - 1)};
+
+        return {
+          .hr = hr,
+          .module_base_name = std::move(module_base_name),
+        };
+      }
+
+      if (hr != E_NOTIMPL) {
+        return {.hr = hr};
+      }
+    }
+
+    std::wstring contract_name_storage{contract_name.begin(), contract_name.end()};
+    if (!contract_name_storage.ends_with(L".dll")) {
+      contract_name_storage += L".dll";
+    }
+
+    loaded_library api_set_module{contract_name_storage.c_str()};
+    if (!api_set_module) {
+      return {.hr = E_FAIL};
+    }
+
+    auto module_path = get_module_path(api_set_module.handle);
+    return {
+      .hr = S_OK,
+      .module_base_name = module_path.filename().wstring(),
+    };
+  }
 
   [[nodiscard]] inline const IMAGE_NT_HEADERS* get_nt_headers(HMODULE module_handle) {
     auto* dos_header = reinterpret_cast<const IMAGE_DOS_HEADER*>(module_handle);

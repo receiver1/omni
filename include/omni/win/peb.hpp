@@ -9,6 +9,7 @@
 #endif
 
 #include "omni/address.hpp"
+#include "omni/win/api_set_map.hpp"
 #include "omni/win/unicode_string.hpp"
 
 namespace omni::win {
@@ -100,7 +101,8 @@ namespace omni::win {
     void* reserved7;
     std::uint32_t reserved8;
     std::uint32_t atl_thunk_list_head32;
-    void* reserved9[45];
+    win::api_set_namespace* api_set_map;
+    void* reserved9[44];
     std::uint8_t reserved10[96];
 
     [[nodiscard]] static auto ptr() {
