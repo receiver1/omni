@@ -8,7 +8,7 @@
 namespace {
 
   [[nodiscard]] std::string narrow_ascii(std::wstring_view value) {
-    return {value.begin(), value.end()};
+    return value | std::views::transform([](wchar_t ch) { return static_cast<char>(ch); }) | std::ranges::to<std::string>();
   }
 
   [[nodiscard]] bool has_default_host(const omni::api_set& api_set) {
