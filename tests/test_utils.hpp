@@ -19,8 +19,11 @@
 namespace ut = boost::ut;
 using ut::expect;
 using ut::fatal;
-using ut::throws;
 using ut::operator""_test;
+
+#ifdef OMNI_HAS_EXCEPTIONS
+using ut::throws;
+#endif
 
 namespace omni::tests {
 
