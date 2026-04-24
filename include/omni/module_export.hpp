@@ -8,6 +8,7 @@
 #include <string_view>
 
 #include "omni/address.hpp"
+#include "omni/api_set.hpp"
 
 namespace omni {
 
@@ -57,6 +58,7 @@ namespace omni {
     std::uint32_t ordinal{};
     bool is_forwarded{};
     omni::forwarder_string forwarder_string{};
+    std::optional<omni::api_set> forwarder_api_set;
     omni::address module_base;
 
     [[nodiscard]] bool is_ordinal_only() const noexcept {

@@ -40,6 +40,4 @@ namespace omni::concepts {
     T{typename T::value_type{}};
   };
 
-  template <typename T> concept module_loader = std::invocable<T, std::string_view>;
-
 } // namespace omni::concepts

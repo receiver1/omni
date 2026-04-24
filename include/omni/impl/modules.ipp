@@ -1,5 +1,7 @@
 #pragma once
 
+#include "omni/api_set.hpp"
+#include "omni/api_sets.hpp"
 #include "omni/error.hpp"
 #include "omni/hash.hpp"
 #include "omni/module_export.hpp"
@@ -9,9 +11,9 @@ namespace omni {
 
   namespace detail {
 
-    // Learn more here: https://devblogs.microsoft.com/oldnewthing/20060719-24/?p=30473
     template <concepts::hash Hasher>
     inline std::expected<module_export, std::error_code> resolve_forwarded_export(omni::address export_address) {
+      // Learn more here: https://devblogs.microsoft.com/oldnewthing/20060719-24/?p=30473
       // In a forwarded export, the address is a string containing
       // information about the actual export and its location
       // They are always presented as "module_name.export_name"
@@ -20,28 +22,59 @@ namespace omni {
       // Split forwarded export to module name and real export name
       forwarder_string forwarder{forwarder_string::parse(forwarder_str)};
       if (forwarder.function.empty()) {
-        return {};
+        return std::unexpected(omni::error::forwarder_string_invalid);
       }
 
-      module_export real_export;
+      const auto resolve_export_in_module = [&forwarder](Hasher module_name_hash) -> module_export {
+        if (forwarder.is_ordinal()) {
+          return omni::get_export<Hasher>(forwarder.to_ordinal(), module_name_hash, omni::use_ordinal);
+        }
+        return omni::get_export<Hasher>(omni::hash<Hasher>(forwarder.function), module_name_hash);
+      };
 
       // Try to search for the real export with a pre-known module name
-      if (forwarder.is_ordinal()) {
-        real_export = omni::get_export<Hasher>(forwarder.to_ordinal(), omni::hash<Hasher>(forwarder.module), omni::use_ordinal);
-      } else {
-        real_export = omni::get_export<Hasher>(omni::hash<Hasher>(forwarder.function), omni::hash<Hasher>(forwarder.module));
+      module_export real_export = resolve_export_in_module(omni::hash<Hasher>(forwarder.module));
+      if (real_export.present()) {
+        return real_export;
       }
 
-      // The module that the forwarder is pointing to is not loaded into the
-      // process, so we just return the result with forwarder_string
-      if (!real_export.address) {
-        return module_export{
-          .is_forwarded = true,
-          .forwarder_string = forwarder,
-        };
+      // Direct lookup by forwarder target failed, try api-set resolution next
+      module_export forwarded_export{
+        .is_forwarded = true,
+        .forwarder_string = forwarder,
+      };
+
+      // We cannot know whether a module is an API-set. The only way
+      // to find out is to scan the names of API-set contracts to
+      // see if its name is among them
+      auto api_set = omni::get_api_set(omni::hash<Hasher>(forwarder.module));
+      if (!api_set.present()) {
+        return forwarded_export;
       }
 
-      return real_export;
+      // At this stage, we know that the module pointed to by the forwarder
+      // is an API set. We will iterate through its list of hosts to find
+      // any loaded module, in which we will attempt to locate the actual
+      // export name given by forwarder
+      for (const omni::api_set_host& host : api_set.hosts()) {
+        bool host_name_empty = not host.present() or host.value.empty();
+        if (host_name_empty) {
+          continue;
+        }
+
+        auto module_name_hash = omni::hash<Hasher>(host.value);
+        module_export host_export = resolve_export_in_module(module_name_hash);
+        if (host_export.present()) {
+          return host_export;
+        }
+      }
+
+      // The API-set host specified by the forwarder has not been loaded
+      // into the process. We've done everything we can, so we return
+      // the API-set that we couldn't resolve to the caller
+      forwarded_export.forwarder_api_set = api_set;
+
+      return forwarded_export;
     }
 
   } // namespace detail
