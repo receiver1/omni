@@ -186,7 +186,7 @@ Useful CMake options:
 
 ## Testing
 
-The test suite lives in [`tests/`](tests) and is built into a single `omni_tests` executable.
+The test suite lives in [`tests/`](tests) and builds one `omni_test_<name>` executable per test source, each registered with `CTest`.
 
 Current coverage includes:
 
