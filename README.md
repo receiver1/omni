@@ -1,3 +1,8 @@
+[![Windows MSVC](https://github.com/annihilatorq/shadow_syscall/actions/workflows/windows-msvc.yml/badge.svg)](https://github.com/annihilatorq/shadow_syscall/actions/workflows/windows-msvc.yml)
+[![Windows Clang-cl](https://github.com/annihilatorq/shadow_syscall/actions/workflows/windows-clang-cl.yml/badge.svg)](https://github.com/annihilatorq/shadow_syscall/actions/workflows/windows-clang-cl.yml)
+[![Windows GCC](https://github.com/annihilatorq/shadow_syscall/actions/workflows/windows-gcc.yml/badge.svg)](https://github.com/annihilatorq/shadow_syscall/actions/workflows/windows-gcc.yml)
+[![Windows MSVC Without Exceptions](https://github.com/annihilatorq/shadow_syscall/actions/workflows/windows-msvc-no-exceptions.yml/badge.svg)](https://github.com/annihilatorq/shadow_syscall/actions/workflows/windows-msvc-no-exceptions.yml)
+
 # omni
 
 > A header-only C++23 library for Windows-focused low-level work: module/export inspection, lazy imports, syscalls, shared user data, and compile-time hashing.
