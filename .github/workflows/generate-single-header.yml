@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths-ignore: ["**/*.md", "docs/**", "single_header/omni.hpp"]
+  workflow_dispatch:
 
 jobs:
   build:
