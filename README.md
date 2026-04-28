@@ -4,6 +4,7 @@
 [![Windows MSVC Without Exceptions](https://github.com/annihilatorq/shadow_syscall/actions/workflows/windows-msvc-no-exceptions.yml/badge.svg)](https://github.com/annihilatorq/shadow_syscall/actions/workflows/windows-msvc-no-exceptions.yml)
 
 # omni
+<img width="1920" height="302" alt="Omni" src="https://github.com/user-attachments/assets/646760a2-b0d6-4302-a9e4-56d3fe50ce3d" />
 
 > A header-only C++23 library for Windows-focused low-level work: module/export inspection, lazy imports, syscalls, shared user data, and compile-time hashing.
 
