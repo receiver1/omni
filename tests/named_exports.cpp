@@ -82,8 +82,8 @@ ut::suite<"omni::named_exports"> named_exports_suite = [] {
     FARPROC export_address = ::GetProcAddress(version_dll.handle, "GetFileVersionInfoSizeW");
 
     auto by_name = exports.find("GetFileVersionInfoSizeW");
-    auto by_predicate =
-      exports.find_if([export_address](const omni::named_export& named_export) { return named_export.address == export_address; });
+    auto by_predicate = exports.find_if(
+      [export_address](const omni::named_export& named_export) { return named_export.address == export_address; });
 
     expect(fatal(static_cast<bool>(version_dll)));
     expect(fatal(version_module.present()));

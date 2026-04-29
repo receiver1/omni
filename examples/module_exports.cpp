@@ -116,7 +116,8 @@ int main() {
     forwarded_export.forwarder_string.function);
 
   if (forwarded_export.forwarder_string.is_ordinal()) {
-    auto resolved_export = omni::get_export(forwarded_export.forwarder_string.to_ordinal(), target_module_hash, omni::use_ordinal);
+    auto resolved_export =
+      omni::get_export(forwarded_export.forwarder_string.to_ordinal(), target_module_hash, omni::use_ordinal);
     if (!resolved_export) {
       std::println("  resolved target      : target module is not loaded");
       return 0;
