@@ -289,10 +289,17 @@ namespace omni::detail {
 
 namespace omni::detail {
 
+  template <typename CharT>
+  [[nodiscard]] constexpr static CharT to_lower(CharT c) {
+    return (
+      (c >= static_cast<CharT>('A') && c <= static_cast<CharT>('Z')) ? static_cast<CharT>(c + static_cast<CharT>(32)) : c);
+  }
+
   template <std::unsigned_integral T>
   class fnv1a_hash {
-    constexpr static auto FNV_prime = (sizeof(T) == 4) ? 16777619ULL : 1099511628211ULL;
-    constexpr static auto FNV_offset_basis = (sizeof(T) == 4) ? 2166136261ULL : 14695981039346656037ULL;
+    constexpr static T FNV_prime = (sizeof(T) == 4) ? static_cast<T>(16777619U) : static_cast<T>(1099511628211ULL);
+    constexpr static T FNV_offset_basis =
+      (sizeof(T) == 4) ? static_cast<T>(2166136261U) : static_cast<T>(14695981039346656037ULL);
 
    public:
     constexpr static auto initial_value = FNV_offset_basis;
@@ -360,11 +367,6 @@ namespace omni::detail {
       accumulator ^= static_cast<value_type>(to_lower(byte));
       accumulator *= FNV_prime;
       return accumulator;
-    }
-
-    template <typename CharT>
-    [[nodiscard]] constexpr static CharT to_lower(CharT c) {
-      return ((c >= 'A' && c <= 'Z') ? (c + 32) : c);
     }
 
     value_type value_{FNV_offset_basis};
@@ -451,380 +453,13 @@ struct std::formatter<omni::fnv1a64> : std::formatter<omni::fnv1a64::value_type>
 #include <string_view>
 
 #include <cstddef>
-#include <cstdint>
 #include <iterator>
 #include <ranges>
 #include <string_view>
 
-#include <array>
-#include <cassert>
-#include <cstdint>
-#include <format>
-#include <limits>
-#include <string_view>
-
-#include <algorithm>
-#include <optional>
-#include <ranges>
-#include <span>
-#include <string_view>
-
+#include <concepts>
 #include <cstddef>
-#include <cstdint>
-#include <span>
-#include <string_view>
-
-namespace omni::win {
-
-  struct api_set_namespace;
-
-  struct api_set_hash_entry {
-    std::uint32_t hash;
-    std::uint32_t index;
-  };
-
-  struct api_set_value_entry {
-    std::uint32_t flags;
-    std::uint32_t name_offset;
-    std::uint32_t name_length;
-    std::uint32_t value_offset;
-    std::uint32_t value_length;
-
-    [[nodiscard]] std::wstring_view value(omni::address api_set_namespace) const noexcept {
-      if (value_length == 0) {
-        return {};
-      }
-
-      auto* value_string_ptr = api_set_namespace.offset<wchar_t*>(value_offset);
-      return {value_string_ptr, value_length / sizeof(wchar_t)};
-    }
-
-    [[nodiscard]] std::wstring_view alias(omni::address api_set_namespace) const noexcept {
-      if (name_length == 0) {
-        return {};
-      }
-
-      auto* name_string_ptr = api_set_namespace.offset<wchar_t*>(name_offset);
-      return {name_string_ptr, name_length / sizeof(wchar_t)};
-    }
-  };
-
-  struct api_set_namespace_entry {
-    std::uint32_t flags;
-    std::uint32_t name_offset;
-    std::uint32_t name_length;
-    std::uint32_t hashed_length;
-    std::uint32_t value_offset;
-    std::uint32_t value_count;
-
-    [[nodiscard]] std::span<const api_set_value_entry> value_entries(omni::address api_set_namespace) const noexcept {
-      const auto* first_entry = api_set_namespace.offset<const api_set_value_entry*>(value_offset);
-      return {first_entry, value_count};
-    }
-
-    [[nodiscard]] bool is_sealed() const noexcept {
-      return (flags & 1U) != 0;
-    }
-
-    [[nodiscard]] std::wstring_view contract_name(omni::address api_set_namespace) const noexcept {
-      auto* name_string_ptr = api_set_namespace.offset<wchar_t*>(name_offset);
-      return {name_string_ptr, name_length / sizeof(wchar_t)};
-    }
-
-    [[nodiscard]] api_set_value_entry* get_value_entry(omni::address api_set_namespace) const noexcept {
-      return api_set_namespace.offset<api_set_value_entry*>(value_offset);
-    }
-  };
-
-  struct api_set_namespace {
-    std::uint32_t version;
-    std::uint32_t size;
-    std::uint32_t flags;
-    std::uint32_t entries_count;
-    std::uint32_t entry_offset;
-    std::uint32_t hash_offset;
-    std::uint32_t hash_factor;
-
-    [[nodiscard]] std::span<const api_set_namespace_entry> namespace_entries() const noexcept {
-      const auto* first_entry =
-        reinterpret_cast<const api_set_namespace_entry*>(reinterpret_cast<const std::byte*>(this) + entry_offset);
-
-      return {first_entry, entries_count};
-    }
-
-    [[nodiscard]] api_set_namespace_entry* get_namespace_entry(std::size_t index) const noexcept {
-      return omni::address{this}.offset<api_set_namespace_entry*>(entry_offset) + index;
-    }
-  };
-
-} // namespace omni::win
-
-namespace omni {
-
-  struct api_set_host {
-    std::wstring_view value;
-    std::wstring_view alias;
-
-    [[nodiscard]] bool present() const noexcept {
-      return !value.empty() || !alias.empty();
-    }
-
-    [[nodiscard]] bool is_default() const noexcept {
-      return alias.empty();
-    }
-  };
-
-  class api_set_hosts {
-   public:
-    api_set_hosts() noexcept = default;
-
-    api_set_hosts(std::span<const win::api_set_value_entry> entries, omni::address api_set_map_address) noexcept
-      : entries_(entries), api_set_map_address_(api_set_map_address) {}
-
-    class iterator {
-     public:
-      using iterator_category = std::forward_iterator_tag;
-      using value_type = api_set_host;
-      using difference_type = std::ptrdiff_t;
-      using pointer = const value_type*;
-      using reference = const value_type&;
-
-      iterator() noexcept: index_(0), api_set_map_address_(0) {}
-
-      iterator(std::span<const win::api_set_value_entry> entries, omni::address api_set_map_address, std::size_t index = 0)
-        : entries_(entries), index_(index), api_set_map_address_(api_set_map_address) {
-        update_value();
-      }
-
-      [[nodiscard]] reference operator*() const noexcept {
-        return current_;
-      }
-
-      [[nodiscard]] pointer operator->() const noexcept {
-        return &current_;
-      }
-
-      iterator& operator++() noexcept {
-        if (index_ < entries_.size()) {
-          ++index_;
-          update_value();
-        }
-        return *this;
-      }
-
-      iterator operator++(int) noexcept {
-        iterator tmp = *this;
-        ++(*this);
-        return tmp;
-      }
-
-      bool operator==(const iterator& other) const noexcept {
-        return entries_.data() == other.entries_.data() && entries_.size() == other.entries_.size() && index_ == other.index_ &&
-               api_set_map_address_ == other.api_set_map_address_;
-      }
-
-      bool operator!=(const iterator& other) const noexcept {
-        return !(*this == other);
-      }
-
-     private:
-      void update_value() noexcept {
-        if (entries_.empty() || index_ >= entries_.size()) {
-          current_ = value_type{};
-          return;
-        }
-
-        const win::api_set_value_entry& entry = entries_[index_];
-        current_ = value_type{
-          .value = entry.value(api_set_map_address_),
-          .alias = entry.alias(api_set_map_address_),
-        };
-      }
-
-      std::span<const win::api_set_value_entry> entries_;
-      std::size_t index_;
-      omni::address api_set_map_address_;
-      mutable value_type current_;
-    };
-
-    static_assert(std::forward_iterator<iterator>);
-
-    [[nodiscard]] iterator begin() const {
-      return {entries_, api_set_map_address_, 0};
-    }
-
-    [[nodiscard]] iterator end() const {
-      return {entries_, api_set_map_address_, size()};
-    }
-
-    [[nodiscard]] std::size_t size() const noexcept {
-      return entries_.size();
-    }
-
-   private:
-    std::span<const win::api_set_value_entry> entries_;
-    omni::address api_set_map_address_;
-  };
-
-  static_assert(std::ranges::viewable_range<api_set_hosts>);
-
-  class api_set {
-   public:
-    api_set() = default;
-
-    api_set(std::wstring_view contract_name, bool sealed, std::span<const win::api_set_value_entry> entries,
-      omni::address base) noexcept
-      : contract_name_(contract_name), is_sealed_(sealed), value_entries_(entries), base_(base) {}
-
-    // Contract, for example: "api-ms-win-core-com-l1-1-0"
-    [[nodiscard]] std::wstring_view contract_name() const noexcept {
-      return contract_name_;
-    }
-
-    [[nodiscard]] bool is_sealed() const noexcept {
-      return is_sealed_;
-    }
-
-    [[nodiscard]] api_set_hosts hosts() const noexcept {
-      return {value_entries_, base_};
-    }
-
-    [[nodiscard]] std::optional<api_set_host> default_host() const noexcept {
-      return find_host_entry({});
-    }
-
-    [[nodiscard]] std::optional<api_set_host> resolve_host(std::wstring_view alias = {}) const noexcept {
-      auto exact_host = find_host_entry(alias);
-      if (exact_host.has_value()) {
-        return exact_host;
-      }
-
-      if (alias.empty()) {
-        return std::nullopt;
-      }
-
-      return default_host();
-    }
-
-    [[nodiscard]] bool present() const noexcept {
-      return !contract_name_.empty() && base_ != nullptr;
-    }
-
-    [[nodiscard]] explicit operator bool() const noexcept {
-      return present();
-    }
-
-   private:
-    [[nodiscard]] std::optional<api_set_host> find_host_entry(std::wstring_view alias) const noexcept {
-      auto all_hosts = hosts();
-      auto host = std::ranges::find_if(all_hosts, [alias](const api_set_host& candidate) { return candidate.alias == alias; });
-      if (host == all_hosts.end()) {
-        return std::nullopt;
-      }
-
-      return *host;
-    }
-
-    std::wstring_view contract_name_;
-    bool is_sealed_{};
-
-    std::span<const win::api_set_value_entry> value_entries_;
-    omni::address base_;
-  };
-
-} // namespace omni
-
-namespace omni {
-
-  struct use_ordinal_t {};
-  [[maybe_unused]] constexpr inline use_ordinal_t use_ordinal{};
-
-  struct forwarder_string {
-    std::string_view module;
-    std::string_view function;
-
-    [[nodiscard]] static forwarder_string parse(std::string_view forwarder_str) noexcept {
-      auto pos = forwarder_str.find('.');
-      if (pos != std::string_view::npos) {
-        auto first_part = forwarder_str.substr(0, pos);
-        auto second_part = forwarder_str.substr(pos + 1);
-        return forwarder_string{.module = first_part, .function = second_part};
-      }
-      assert(false);
-      return forwarder_string{.module = forwarder_str, .function = std::string_view{}};
-    }
-
-    [[nodiscard]] bool is_ordinal() const noexcept {
-      return !function.empty() && function.front() == '#';
-    }
-
-    [[nodiscard]] std::uint32_t to_ordinal() const noexcept {
-      if (function.empty()) {
-        return 0;
-      }
-
-      std::uint32_t ordinal{};
-      // Ordinal forwarder always starts from '#', skip it
-      auto ordinal_str = function.substr(1);
-      [[maybe_unused]] auto result = std::from_chars(ordinal_str.data(), ordinal_str.data() + ordinal_str.size(), ordinal);
-      assert(result.ec == std::errc{});
-      return ordinal;
-    }
-
-    [[nodiscard]] bool present() const noexcept {
-      return !(module.empty() || function.empty());
-    }
-  };
-
-  struct module_export {
-    std::string_view name;
-    omni::address address;
-    std::uint32_t ordinal{};
-    bool is_forwarded{};
-    omni::forwarder_string forwarder_string{};
-    std::optional<omni::api_set> forwarder_api_set;
-    omni::address module_base;
-
-    [[nodiscard]] bool is_ordinal_only() const noexcept {
-      return name.empty();
-    }
-
-    [[nodiscard]] bool present() const noexcept {
-      return static_cast<bool>(address);
-    }
-
-    [[nodiscard]] explicit operator bool() const noexcept {
-      return present();
-    }
-  };
-
-} // namespace omni
-
-template <>
-struct std::formatter<omni::module_export> : std::formatter<std::string_view> {
-  auto format(const omni::module_export& module_export, std::format_context& ctx) const {
-    if (!module_export.present()) {
-      return std::formatter<std::string_view, char>::format({}, ctx);
-    }
-
-    if (!module_export.is_ordinal_only()) {
-      return std::formatter<std::string_view, char>::format(module_export.name, ctx);
-    }
-
-    // Zero-allocation path for ordinal exports, since the formatter is
-    // required to write data from the view to the format_context::out()
-    // before exiting the scope
-    std::array<char, std::numeric_limits<std::uint32_t>::digits> ordinal_buf{};
-    ordinal_buf[0] = '#';
-
-    auto conversion_result =
-      std::to_chars(ordinal_buf.data() + 1, ordinal_buf.data() + ordinal_buf.size(), module_export.ordinal);
-    std::size_t digits_converted = conversion_result.ptr - ordinal_buf.data();
-
-    std::string_view ordinal_view(ordinal_buf.data(), digits_converted);
-    return std::formatter<std::string_view, char>::format(ordinal_view, ctx);
-  }
-};
+#include <ranges>
 
 #include <cstdint>
 
@@ -956,12 +591,42 @@ namespace omni::win {
       return reinterpret_cast<std::uint32_t*>(base_address + rva_functions);
     }
 
+    [[nodiscard]] auto names_table(std::uintptr_t base_address) const {
+      return reinterpret_cast<std::uint32_t*>(base_address + rva_names);
+    }
+
     [[nodiscard]] auto ordinal_table(std::uintptr_t base_address) const {
       return reinterpret_cast<std::uint16_t*>(base_address + rva_name_ordinals);
     }
   };
 
 } // namespace omni::win
+
+namespace omni::concepts {
+
+  template <typename Range, typename FindKey, typename Value = std::ranges::range_value_t<Range>>
+  concept export_range = std::ranges::viewable_range<Range> && std::bidirectional_iterator<typename Range::iterator> &&
+                         std::same_as<std::ranges::range_value_t<Range>, Value> &&
+                         requires(const Range& range, FindKey key, std::size_t index, omni::address address) {
+                           typename Range::iterator;
+
+                           { range.address(index) } -> std::same_as<omni::address>;
+                           { range.is_forwarded(address) } -> std::same_as<bool>;
+                           { range.directory() } -> std::same_as<const win::export_directory*>;
+                           { range.size() } -> std::same_as<std::size_t>;
+                           { range.begin() } -> std::same_as<typename Range::iterator>;
+                           { range.end() } -> std::same_as<typename Range::iterator>;
+                           { range.find(key) } -> std::same_as<typename Range::iterator>;
+                           {
+                             range.find_if([](const Value&) { return true; })
+                           } -> std::same_as<typename Range::iterator>;
+                         };
+
+} // namespace omni::concepts
+
+#include <cstddef>
+#include <cstdint>
+#include <string_view>
 
 #include <cstdint>
 #include <limits>
@@ -1347,23 +1012,42 @@ namespace omni::win {
     }
   };
 
+  static win::export_directory* get_export_directory(omni::address base_address) {
+    if (!base_address) {
+      return nullptr;
+    }
+
+    const auto* image = base_address.ptr<const win::image>();
+    const auto export_data_dir = image->get_optional_header()->data_directories.export_directory;
+    if (!export_data_dir.present()) {
+      return nullptr;
+    }
+
+    return base_address.ptr<win::export_directory>(export_data_dir.rva);
+  }
+
 } // namespace omni::win
 
-namespace omni {
+namespace omni::detail {
 
-  class module_exports {
-    enum class iteration_kind : std::uint8_t {
-      all,
-      ordinal,
-      named,
-    };
-
+  class export_directory_view {
    public:
-    module_exports() = default;
-    explicit module_exports(omni::address module_base) noexcept
-      : module_base_(module_base), export_dir_(get_export_directory(module_base)) {}
+    constexpr static std::size_t npos{static_cast<std::size_t>(-1)};
 
-    [[nodiscard]] std::size_t size() const noexcept {
+    export_directory_view() = default;
+
+    explicit export_directory_view(omni::address module_base) noexcept
+      : module_base_(module_base), export_dir_(win::get_export_directory(module_base)) {}
+
+    [[nodiscard]] omni::address module_base() const noexcept {
+      return module_base_;
+    }
+
+    [[nodiscard]] const win::export_directory* native_handle() const noexcept {
+      return export_dir_;
+    }
+
+    [[nodiscard]] std::size_t functions_count() const noexcept {
       if (export_dir_ == nullptr) {
         return 0;
       }
@@ -1371,48 +1055,53 @@ namespace omni {
       return export_dir_->num_functions;
     }
 
-    [[nodiscard]] const win::export_directory* directory() const noexcept {
-      return export_dir_;
-    }
-
-    [[nodiscard]] std::string_view name(std::size_t index) const noexcept {
-      if (export_dir_ == nullptr || index >= size()) {
-        return {};
-      }
-
-      const std::uint16_t* ordinal_table_ptr = export_dir_->ordinal_table(module_base_.value());
-      const auto* rva_names_ptr = module_base_.offset<const std::uint32_t*>(export_dir_->rva_names);
-
-      for (std::size_t name_index{}; name_index < export_dir_->num_names; ++name_index) {
-        if (static_cast<std::size_t>(ordinal_table_ptr[name_index]) == index) {
-          const auto* export_name_ptr = module_base_.offset<const char*>(rva_names_ptr[name_index]);
-          return {export_name_ptr};
-        }
-      }
-
-      return {};
-    }
-
-    [[nodiscard]] std::uint32_t ordinal(std::size_t index) const noexcept {
-      if (export_dir_ == nullptr || index >= size()) {
+    [[nodiscard]] std::size_t names_count() const noexcept {
+      if (export_dir_ == nullptr) {
         return 0;
       }
 
-      return static_cast<std::uint32_t>(export_dir_->base + index);
+      return export_dir_->num_names;
     }
 
-    [[nodiscard]] omni::address address(std::size_t index) const noexcept {
-      if (export_dir_ == nullptr || index >= size()) {
+    [[nodiscard]] std::size_t function_index(std::size_t name_index) const noexcept {
+      if (export_dir_ == nullptr || module_base_ == nullptr || name_index >= names_count()) {
+        return npos;
+      }
+
+      auto* ordinal_table = export_dir_->ordinal_table(module_base_.value());
+
+      return static_cast<std::size_t>(ordinal_table[name_index]);
+    }
+
+    [[nodiscard]] omni::address address(std::size_t function_index) const noexcept {
+      if (export_dir_ == nullptr || module_base_ == nullptr || function_index >= functions_count()) {
         return {};
       }
 
-      const auto* rva_table_ptr = export_dir_->rva_table(module_base_.value());
-      const auto rva_function = rva_table_ptr[index];
+      auto* rva_table = export_dir_->rva_table(module_base_.value());
 
-      return module_base_.offset(rva_function);
+      return module_base_.offset(rva_table[function_index]);
     }
 
-    [[nodiscard]] bool is_export_forwarded(omni::address export_address) const noexcept {
+    [[nodiscard]] std::uint32_t ordinal(std::size_t function_index) const noexcept {
+      if (export_dir_ == nullptr || function_index >= functions_count()) {
+        return 0;
+      }
+
+      return export_dir_->base + static_cast<std::uint32_t>(function_index);
+    }
+
+    [[nodiscard]] std::string_view name(std::size_t name_index) const noexcept {
+      if (export_dir_ == nullptr || module_base_ == nullptr || name_index >= names_count()) {
+        return {};
+      }
+
+      auto* names_table = export_dir_->names_table(module_base_.value());
+
+      return std::string_view{module_base_.offset<const char*>(names_table[name_index])};
+    }
+
+    [[nodiscard]] bool is_forwarded(omni::address export_address) const noexcept {
       if (export_dir_ == nullptr) {
         return false;
       }
@@ -1420,29 +1109,469 @@ namespace omni {
       const auto* image = module_base_.ptr<const win::image>();
       const auto export_data_dir = image->get_optional_header()->data_directories.export_directory;
 
-      const auto export_table_start = module_base_.offset(export_data_dir.rva);
-      const auto export_table_end = export_table_start.offset(export_data_dir.size);
+      auto export_table_begin = module_base_.offset(export_data_dir.rva);
+      auto export_table_end = export_table_begin.offset(export_data_dir.size);
 
-      return export_address >= export_table_start && export_address < export_table_end;
+      return export_address.is_in_range(export_table_begin, export_table_end);
     }
 
-    template <iteration_kind IterationKind>
-    class export_iterator {
+    [[nodiscard]] bool present() const noexcept {
+      return module_base_ != nullptr && export_dir_ != nullptr;
+    }
+
+    [[nodiscard]] bool operator==(const export_directory_view&) const = default;
+
+   private:
+    omni::address module_base_;
+    win::export_directory* export_dir_{nullptr};
+  };
+
+} // namespace omni::detail
+
+#include <array>
+#include <cassert>
+#include <charconv>
+#include <cstdint>
+#include <format>
+#include <limits>
+#include <string_view>
+
+#include <algorithm>
+#include <optional>
+#include <ranges>
+#include <span>
+#include <string_view>
+
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <string_view>
+
+namespace omni::win {
+
+  struct api_set_namespace;
+
+  struct api_set_hash_entry {
+    std::uint32_t hash;
+    std::uint32_t index;
+  };
+
+  struct api_set_value_entry {
+    std::uint32_t flags;
+    std::uint32_t name_offset;
+    std::uint32_t name_length;
+    std::uint32_t value_offset;
+    std::uint32_t value_length;
+
+    [[nodiscard]] std::wstring_view value(omni::address api_set_namespace) const noexcept {
+      if (value_length == 0) {
+        return {};
+      }
+
+      auto* value_string_ptr = api_set_namespace.offset<wchar_t*>(value_offset);
+      return {value_string_ptr, value_length / sizeof(wchar_t)};
+    }
+
+    [[nodiscard]] std::wstring_view alias(omni::address api_set_namespace) const noexcept {
+      if (name_length == 0) {
+        return {};
+      }
+
+      auto* name_string_ptr = api_set_namespace.offset<wchar_t*>(name_offset);
+      return {name_string_ptr, name_length / sizeof(wchar_t)};
+    }
+  };
+
+  struct api_set_namespace_entry {
+    std::uint32_t flags;
+    std::uint32_t name_offset;
+    std::uint32_t name_length;
+    std::uint32_t hashed_length;
+    std::uint32_t value_offset;
+    std::uint32_t value_count;
+
+    [[nodiscard]] std::span<const api_set_value_entry> value_entries(omni::address api_set_namespace) const noexcept {
+      const auto* first_entry = api_set_namespace.offset<const api_set_value_entry*>(value_offset);
+      return {first_entry, value_count};
+    }
+
+    [[nodiscard]] bool is_sealed() const noexcept {
+      return (flags & 1U) != 0;
+    }
+
+    [[nodiscard]] std::wstring_view contract_name(omni::address api_set_namespace) const noexcept {
+      auto* name_string_ptr = api_set_namespace.offset<wchar_t*>(name_offset);
+      return {name_string_ptr, name_length / sizeof(wchar_t)};
+    }
+
+    [[nodiscard]] api_set_value_entry* get_value_entry(omni::address api_set_namespace) const noexcept {
+      return api_set_namespace.offset<api_set_value_entry*>(value_offset);
+    }
+  };
+
+  struct api_set_namespace {
+    std::uint32_t version;
+    std::uint32_t size;
+    std::uint32_t flags;
+    std::uint32_t entries_count;
+    std::uint32_t entry_offset;
+    std::uint32_t hash_offset;
+    std::uint32_t hash_factor;
+
+    [[nodiscard]] std::span<const api_set_namespace_entry> namespace_entries() const noexcept {
+      const auto* first_entry =
+        reinterpret_cast<const api_set_namespace_entry*>(reinterpret_cast<const std::byte*>(this) + entry_offset);
+
+      return {first_entry, entries_count};
+    }
+
+    [[nodiscard]] api_set_namespace_entry* get_namespace_entry(std::size_t index) const noexcept {
+      return omni::address{this}.offset<api_set_namespace_entry*>(entry_offset) + index;
+    }
+  };
+
+} // namespace omni::win
+
+namespace omni {
+
+  struct api_set_host {
+    std::wstring_view value;
+    std::wstring_view alias;
+
+    [[nodiscard]] bool present() const noexcept {
+      return !value.empty() || !alias.empty();
+    }
+
+    [[nodiscard]] bool is_default() const noexcept {
+      return alias.empty();
+    }
+  };
+
+  class api_set_hosts {
+   public:
+    api_set_hosts() noexcept = default;
+
+    api_set_hosts(std::span<const win::api_set_value_entry> entries, omni::address api_set_map_address) noexcept
+      : entries_(entries), api_set_map_address_(api_set_map_address) {}
+
+    class iterator {
      public:
-      using iterator_category = std::bidirectional_iterator_tag;
-      using value_type = module_export;
+      using iterator_category = std::forward_iterator_tag;
+      using value_type = api_set_host;
       using difference_type = std::ptrdiff_t;
       using pointer = const value_type*;
       using reference = const value_type&;
 
-      export_iterator() noexcept: module_exports_(nullptr), index_(0), current_export_() {}
-      ~export_iterator() = default;
-      export_iterator(const export_iterator&) = default;
-      export_iterator(export_iterator&&) = default;
-      export_iterator& operator=(export_iterator&&) = default;
+      iterator() noexcept: index_(0), api_set_map_address_(0) {}
 
-      export_iterator(const module_exports* exports, std::size_t index) noexcept
-        : module_exports_(exports), index_(index), current_export_() {
+      iterator(std::span<const win::api_set_value_entry> entries, omni::address api_set_map_address, std::size_t index = 0)
+        : entries_(entries), index_(index), api_set_map_address_(api_set_map_address) {
+        update_value();
+      }
+
+      [[nodiscard]] reference operator*() const noexcept {
+        return current_;
+      }
+
+      [[nodiscard]] pointer operator->() const noexcept {
+        return &current_;
+      }
+
+      iterator& operator++() noexcept {
+        if (index_ < entries_.size()) {
+          ++index_;
+          update_value();
+        }
+        return *this;
+      }
+
+      iterator operator++(int) noexcept {
+        iterator tmp = *this;
+        ++(*this);
+        return tmp;
+      }
+
+      bool operator==(const iterator& other) const noexcept {
+        return entries_.data() == other.entries_.data() && entries_.size() == other.entries_.size() && index_ == other.index_ &&
+               api_set_map_address_ == other.api_set_map_address_;
+      }
+
+      bool operator!=(const iterator& other) const noexcept {
+        return !(*this == other);
+      }
+
+     private:
+      void update_value() noexcept {
+        if (entries_.empty() || index_ >= entries_.size()) {
+          current_ = value_type{};
+          return;
+        }
+
+        const win::api_set_value_entry& entry = entries_[index_];
+        current_ = value_type{
+          .value = entry.value(api_set_map_address_),
+          .alias = entry.alias(api_set_map_address_),
+        };
+      }
+
+      std::span<const win::api_set_value_entry> entries_;
+      std::size_t index_;
+      omni::address api_set_map_address_;
+      mutable value_type current_;
+    };
+
+    static_assert(std::forward_iterator<iterator>);
+
+    [[nodiscard]] iterator begin() const {
+      return {entries_, api_set_map_address_, 0};
+    }
+
+    [[nodiscard]] iterator end() const {
+      return {entries_, api_set_map_address_, size()};
+    }
+
+    [[nodiscard]] std::size_t size() const noexcept {
+      return entries_.size();
+    }
+
+   private:
+    std::span<const win::api_set_value_entry> entries_;
+    omni::address api_set_map_address_;
+  };
+
+  static_assert(std::ranges::viewable_range<api_set_hosts>);
+
+  class api_set {
+   public:
+    api_set() = default;
+
+    api_set(std::wstring_view contract_name, bool sealed, std::span<const win::api_set_value_entry> entries,
+      omni::address base) noexcept
+      : contract_name_(contract_name), is_sealed_(sealed), value_entries_(entries), base_(base) {}
+
+    // Contract, for example: "api-ms-win-core-com-l1-1-0"
+    [[nodiscard]] std::wstring_view contract_name() const noexcept {
+      return contract_name_;
+    }
+
+    [[nodiscard]] bool is_sealed() const noexcept {
+      return is_sealed_;
+    }
+
+    [[nodiscard]] api_set_hosts hosts() const noexcept {
+      return {value_entries_, base_};
+    }
+
+    [[nodiscard]] std::optional<api_set_host> default_host() const noexcept {
+      return find_host_entry({});
+    }
+
+    [[nodiscard]] std::optional<api_set_host> resolve_host(std::wstring_view alias = {}) const noexcept {
+      auto exact_host = find_host_entry(alias);
+      if (exact_host.has_value()) {
+        return exact_host;
+      }
+
+      if (alias.empty()) {
+        return std::nullopt;
+      }
+
+      return default_host();
+    }
+
+    [[nodiscard]] bool present() const noexcept {
+      return !contract_name_.empty() && base_ != nullptr;
+    }
+
+    [[nodiscard]] explicit operator bool() const noexcept {
+      return present();
+    }
+
+   private:
+    [[nodiscard]] std::optional<api_set_host> find_host_entry(std::wstring_view alias) const noexcept {
+      auto all_hosts = hosts();
+      auto host = std::ranges::find_if(all_hosts, [alias](const api_set_host& candidate) { return candidate.alias == alias; });
+      if (host == all_hosts.end()) {
+        return std::nullopt;
+      }
+
+      return *host;
+    }
+
+    std::wstring_view contract_name_;
+    bool is_sealed_{};
+
+    std::span<const win::api_set_value_entry> value_entries_;
+    omni::address base_;
+  };
+
+} // namespace omni
+
+namespace omni {
+
+  struct use_ordinal_t {};
+  [[maybe_unused]] constexpr inline use_ordinal_t use_ordinal{};
+
+  struct forwarder_string {
+    std::string_view module;
+    std::string_view function;
+
+    [[nodiscard]] static forwarder_string parse(std::string_view forwarder_str) noexcept {
+      auto pos = forwarder_str.find('.');
+      if (pos != std::string_view::npos) {
+        auto first_part = forwarder_str.substr(0, pos);
+        auto second_part = forwarder_str.substr(pos + 1);
+        return forwarder_string{.module = first_part, .function = second_part};
+      }
+      assert(false);
+      return forwarder_string{.module = forwarder_str, .function = std::string_view{}};
+    }
+
+    [[nodiscard]] bool is_ordinal() const noexcept {
+      return !function.empty() && function.front() == '#';
+    }
+
+    [[nodiscard]] std::uint32_t to_ordinal() const noexcept {
+      if (function.empty()) {
+        return 0;
+      }
+
+      std::uint32_t ordinal{};
+      // Ordinal forwarder always starts from '#', skip it
+      auto ordinal_str = function.substr(1);
+      [[maybe_unused]] auto result = std::from_chars(ordinal_str.data(), ordinal_str.data() + ordinal_str.size(), ordinal);
+      assert(result.ec == std::errc{});
+      return ordinal;
+    }
+
+    [[nodiscard]] bool present() const noexcept {
+      return !(module.empty() || function.empty());
+    }
+  };
+
+  struct named_export {
+    std::string_view name;
+    omni::address address;
+    omni::forwarder_string forwarder_string{};
+    std::optional<omni::api_set> forwarder_api_set;
+    omni::address module_base;
+
+    [[nodiscard]] bool is_forwarded() const noexcept {
+      return forwarder_string.present();
+    }
+
+    [[nodiscard]] bool is_ordinal_only() const noexcept {
+      return name.empty();
+    }
+
+    [[nodiscard]] bool present() const noexcept {
+      return static_cast<bool>(address);
+    }
+
+    [[nodiscard]] explicit operator bool() const noexcept {
+      return present();
+    }
+  };
+
+  struct ordinal_export {
+    std::uint32_t ordinal{};
+    omni::address address;
+    omni::forwarder_string forwarder_string{};
+    std::optional<omni::api_set> forwarder_api_set;
+    omni::address module_base;
+
+    [[nodiscard]] bool is_forwarded() const noexcept {
+      return forwarder_string.present();
+    }
+
+    [[nodiscard]] bool present() const noexcept {
+      return static_cast<bool>(address);
+    }
+
+    [[nodiscard]] explicit operator bool() const noexcept {
+      return present();
+    }
+  };
+
+} // namespace omni
+
+template <>
+struct std::formatter<omni::named_export> : std::formatter<std::string_view> {
+  auto format(const omni::named_export& named_export, std::format_context& ctx) const {
+    return std::formatter<std::string_view, char>::format(named_export.name, ctx);
+  }
+};
+
+template <>
+struct std::formatter<omni::ordinal_export> : std::formatter<std::string_view> {
+  auto format(const omni::ordinal_export& ordinal_export, std::format_context& ctx) const {
+    if (!ordinal_export.present()) {
+      return ctx.out();
+    }
+
+    // Zero-allocation path for ordinal exports, since the formatter is
+    // required to write data from the view to the format_context::out()
+    // before exiting the scope
+    std::array<char, std::numeric_limits<std::uint32_t>::digits> ordinal_buf{};
+    ordinal_buf[0] = '#';
+
+    auto conversion_result =
+      std::to_chars(ordinal_buf.data() + 1, ordinal_buf.data() + ordinal_buf.size(), ordinal_export.ordinal);
+    std::size_t digits_converted = conversion_result.ptr - ordinal_buf.data();
+
+    std::string_view ordinal_view(ordinal_buf.data(), digits_converted);
+    return std::formatter<std::string_view, char>::format(ordinal_view, ctx);
+  }
+};
+
+namespace omni {
+
+  class named_exports {
+   public:
+    named_exports() = default;
+    explicit named_exports(omni::address module_base) noexcept: export_dir_view_(module_base) {}
+
+    [[nodiscard]] std::size_t size() const noexcept {
+      return export_dir_view_.names_count();
+    }
+
+    [[nodiscard]] const win::export_directory* directory() const noexcept {
+      return export_dir_view_.native_handle();
+    }
+
+    [[nodiscard]] std::string_view name(std::size_t index) const noexcept {
+      return export_dir_view_.name(index);
+    }
+
+    [[nodiscard]] omni::address address(std::size_t index) const noexcept {
+      const auto function_index = export_dir_view_.function_index(index);
+      if (function_index == detail::export_directory_view::npos) {
+        return {};
+      }
+
+      return export_dir_view_.address(function_index);
+    }
+
+    [[nodiscard]] bool is_forwarded(omni::address export_address) const noexcept {
+      return export_dir_view_.is_forwarded(export_address);
+    }
+
+    class iterator {
+     public:
+      using iterator_category = std::bidirectional_iterator_tag;
+      using value_type = named_export;
+      using difference_type = std::ptrdiff_t;
+      using pointer = const value_type*;
+      using reference = const value_type&;
+
+      iterator() noexcept = default;
+      ~iterator() = default;
+      iterator(const iterator&) = default;
+      iterator(iterator&&) = default;
+      iterator& operator=(iterator&&) = default;
+
+      iterator(detail::export_directory_view export_dir_view, std::size_t index) noexcept
+        : export_dir_view_(export_dir_view), index_(index) {
         update_current_export();
       }
 
@@ -1454,9 +1583,9 @@ namespace omni {
         return &current_export_;
       }
 
-      export_iterator& operator=(const export_iterator& other) noexcept {
+      iterator& operator=(const iterator& other) noexcept {
         if (this != &other) {
-          module_exports_ = other.module_exports_;
+          export_dir_view_ = other.export_dir_view_;
           index_ = other.index_;
           current_export_ = other.current_export_;
         }
@@ -1464,12 +1593,8 @@ namespace omni {
         return *this;
       }
 
-      export_iterator& operator++() noexcept {
-        if (module_exports_ == nullptr) {
-          return *this;
-        }
-
-        if (index_ < module_exports_->iteration_size<IterationKind>()) {
+      iterator& operator++() noexcept {
+        if (export_dir_view_.present() && index_ < export_dir_view_.names_count()) {
           ++index_;
         }
 
@@ -1477,18 +1602,14 @@ namespace omni {
         return *this;
       }
 
-      export_iterator operator++(int) noexcept {
-        export_iterator temp = *this;
+      iterator operator++(int) noexcept {
+        iterator temp = *this;
         ++(*this);
         return temp;
       }
 
-      export_iterator& operator--() noexcept {
-        if (module_exports_ == nullptr) {
-          return *this;
-        }
-
-        if (index_ > 0) {
+      iterator& operator--() noexcept {
+        if (export_dir_view_.present() && index_ > 0) {
           --index_;
         }
 
@@ -1496,238 +1617,278 @@ namespace omni {
         return *this;
       }
 
-      export_iterator operator--(int) noexcept {
-        export_iterator temp = *this;
+      iterator operator--(int) noexcept {
+        iterator temp = *this;
         --(*this);
         return temp;
       }
 
-      [[nodiscard]] bool operator==(const export_iterator& other) const noexcept {
-        return index_ == other.index_ && module_exports_ == other.module_exports_;
+      [[nodiscard]] bool operator==(const iterator& other) const noexcept {
+        return index_ == other.index_ && export_dir_view_ == other.export_dir_view_;
       }
 
-      [[nodiscard]] bool operator!=(const export_iterator& other) const noexcept {
+      [[nodiscard]] bool operator!=(const iterator& other) const noexcept {
         return !(*this == other);
       }
 
      private:
       void update_current_export() noexcept {
-        if (module_exports_ == nullptr || index_ >= module_exports_->iteration_size<IterationKind>()) {
+        if (!export_dir_view_.present() || index_ >= export_dir_view_.names_count()) {
           current_export_ = value_type{};
           return;
         }
 
-        // Fast path for named exports to avoid O(n) search
-        if constexpr (IterationKind == iteration_kind::named) {
-          const auto* ordinal_table_ptr = module_exports_->export_dir_->ordinal_table(module_exports_->module_base_.value());
-          const auto* rva_names_ptr =
-            module_exports_->module_base_.offset<const std::uint32_t*>(module_exports_->export_dir_->rva_names);
-
-          const auto function_index = static_cast<std::size_t>(ordinal_table_ptr[index_]);
-          const auto* export_name_ptr = module_exports_->module_base_.offset<const char*>(rva_names_ptr[index_]);
-          const auto export_address = module_exports_->address(function_index);
-          bool is_export_forwarded = module_exports_->is_export_forwarded(export_address);
-
-          current_export_ = value_type{
-            .name = std::string_view{export_name_ptr},
-            .address = export_address,
-            .ordinal = module_exports_->ordinal(function_index),
-            .is_forwarded = is_export_forwarded,
-            .module_base = module_exports_->module_base_,
-          };
-
-          if (is_export_forwarded) {
-            current_export_.forwarder_string = forwarder_string::parse(export_address.ptr<const char>());
-          }
-
+        const auto function_index = export_dir_view_.function_index(index_);
+        if (function_index == detail::export_directory_view::npos) {
+          current_export_ = value_type{};
           return;
         }
 
-        const auto function_index = index_;
-        const auto export_address = module_exports_->address(function_index);
-        bool is_export_forwarded = module_exports_->is_export_forwarded(export_address);
+        const auto export_address = export_dir_view_.address(function_index);
 
         current_export_ = value_type{
-          .name = get_export_name(function_index),
+          .name = export_dir_view_.name(index_),
           .address = export_address,
-          .ordinal = module_exports_->ordinal(function_index),
-          .is_forwarded = is_export_forwarded,
-          .module_base = module_exports_->module_base_,
+          .module_base = export_dir_view_.module_base(),
         };
 
-        if (is_export_forwarded) {
+        if (export_dir_view_.is_forwarded(export_address)) {
           current_export_.forwarder_string = forwarder_string::parse(export_address.ptr<const char>());
         }
       }
 
-      [[nodiscard]] std::string_view get_export_name(std::size_t function_index) const noexcept {
-        // Search for export name, which is O(n) only in case of
-        // iterating over a range that includes named exports
-        if constexpr (IterationKind == iteration_kind::all || IterationKind == iteration_kind::named) {
-          return module_exports_->name(function_index);
-        }
-        return {};
-      }
-
-      const module_exports* module_exports_;
-      std::size_t index_;
-      mutable value_type current_export_;
+      detail::export_directory_view export_dir_view_;
+      std::size_t index_{0};
+      mutable value_type current_export_{};
     };
-
-    template <iteration_kind IterationKind>
-    class export_range {
-     public:
-      export_range() noexcept: module_exports_(nullptr) {}
-      explicit export_range(const module_exports* exports) noexcept: module_exports_(exports) {}
-
-      [[nodiscard]] export_iterator<IterationKind> begin() const noexcept {
-        return {module_exports_, 0};
-      }
-
-      [[nodiscard]] export_iterator<IterationKind> end() const noexcept {
-        if (module_exports_ == nullptr) {
-          return {nullptr, 0};
-        }
-
-        return {module_exports_, module_exports_->iteration_size<IterationKind>()};
-      }
-
-     private:
-      const module_exports* module_exports_;
-    };
-
-    using iterator = export_iterator<iteration_kind::all>;
-    using ordinal_iterator = export_iterator<iteration_kind::ordinal>;
-    using named_iterator = export_iterator<iteration_kind::named>;
-
-    using all_range = export_range<iteration_kind::all>;
-    using ordinal_range = export_range<iteration_kind::ordinal>;
-    using named_range = export_range<iteration_kind::named>;
 
     static_assert(std::bidirectional_iterator<iterator>);
-    static_assert(std::bidirectional_iterator<ordinal_iterator>);
-    static_assert(std::bidirectional_iterator<named_iterator>);
 
-    [[nodiscard]] iterator begin() const& noexcept {
-      return {this, 0};
+    [[nodiscard]] iterator begin() const noexcept {
+      return {export_dir_view_, 0};
     }
 
-    [[nodiscard]] iterator end() const& noexcept {
-      return {this, iteration_size<iteration_kind::all>()};
+    [[nodiscard]] iterator end() const noexcept {
+      return {export_dir_view_, size()};
     }
 
-    [[nodiscard]] all_range all() const& noexcept {
-      return all_range{this};
+    [[nodiscard]] iterator find(concepts::hash auto export_name) const noexcept {
+      return find_by_hashed_name(export_name);
     }
 
-    [[nodiscard]] ordinal_range ordinal() const& noexcept {
-      return ordinal_range{this};
+    [[nodiscard]] iterator find(default_hash export_name) const noexcept {
+      return find_by_hashed_name(export_name);
     }
 
-    [[nodiscard]] named_range named() const& noexcept {
-      return named_range{this};
-    }
-
-    [[nodiscard]] iterator find(concepts::hash auto export_name) const& noexcept {
-      return find_by_name_hash(export_name);
-    }
-
-    [[nodiscard]] iterator find(default_hash export_name) const& noexcept {
-      return find_by_name_hash(export_name);
-    }
-
-    [[nodiscard]] iterator find(std::uint32_t ordinal_value, omni::use_ordinal_t) const& noexcept {
-      if (export_dir_ == nullptr || ordinal_value < export_dir_->base) {
-        return end();
-      }
-
-      const auto function_index = static_cast<std::size_t>(ordinal_value - export_dir_->base);
-      if (function_index >= size()) {
-        return end();
-      }
-
-      return {this, function_index};
-    }
-
-    [[nodiscard]] iterator find_if(std::predicate<const typename iterator::value_type&> auto predicate) const& {
-      if (export_dir_ == nullptr) {
+    [[nodiscard]] iterator find_if(std::predicate<const typename iterator::value_type&> auto predicate) const {
+      if (directory() == nullptr) {
         return end();
       }
 
       return std::ranges::find_if(*this, predicate);
     }
 
-    // NOLINTBEGIN(modernize-use-nodiscard)
-
-    iterator begin() const&& = delete;
-    iterator end() const&& = delete;
-    all_range all() const&& = delete;
-    ordinal_range ordinal() const&& = delete;
-    named_range named() const&& = delete;
-    iterator find(concepts::hash auto export_name) const&& = delete;
-    iterator find(default_hash export_name) const&& = delete;
-    iterator find(std::uint32_t ordinal_value, omni::use_ordinal_t) const&& = delete;
-    iterator find_if(std::predicate<const typename iterator::value_type&> auto predicate) const&& = delete;
-
-    // NOLINTEND(modernize-use-nodiscard)
-
    private:
-    template <iteration_kind IterationKind>
-    [[nodiscard]] std::size_t iteration_size() const noexcept {
-      if (export_dir_ == nullptr) {
-        return 0;
-      }
-
-      if constexpr (IterationKind == iteration_kind::named) {
-        return export_dir_->num_names;
-      }
-
-      return export_dir_->num_functions;
-    }
-
     template <typename Hash>
-    [[nodiscard]] iterator find_by_name_hash(Hash export_name) const noexcept {
-      if (export_dir_ == nullptr) {
+    [[nodiscard]] iterator find_by_hashed_name(Hash export_name_hash) const noexcept {
+      if (directory() == nullptr) {
         return end();
       }
 
-      const auto* ordinal_table_ptr = export_dir_->ordinal_table(module_base_.value());
-      const auto* rva_names_ptr = module_base_.offset<const std::uint32_t*>(export_dir_->rva_names);
-
-      for (std::size_t name_index{}; name_index < export_dir_->num_names; ++name_index) {
-        const auto* export_name_ptr = module_base_.offset<const char*>(rva_names_ptr[name_index]);
-        const auto export_name_view = std::string_view{export_name_ptr};
-
-        if (!export_name_view.empty() && omni::hash<Hash>(export_name_view) == export_name) {
-          return {this, static_cast<std::size_t>(ordinal_table_ptr[name_index])};
+      for (std::size_t i{}; i < size(); ++i) {
+        std::string_view export_name_str = export_dir_view_.name(i);
+        if (export_name_hash == omni::hash<Hash>(export_name_str)) {
+          return {export_dir_view_, i};
         }
       }
 
       return end();
     }
 
-    static win::export_directory* get_export_directory(omni::address base_address) {
-      if (!base_address) {
-        return nullptr;
-      }
-
-      const auto* image = base_address.ptr<const win::image>();
-      const auto export_data_dir = image->get_optional_header()->data_directories.export_directory;
-      if (!export_data_dir.present()) {
-        return nullptr;
-      }
-
-      return base_address.ptr<win::export_directory>(export_data_dir.rva);
+    [[nodiscard]] omni::address module_base() const noexcept {
+      return export_dir_view_.module_base();
     }
 
-    omni::address module_base_;
-    win::export_directory* export_dir_{nullptr};
+    detail::export_directory_view export_dir_view_;
   };
 
-  static_assert(std::ranges::viewable_range<module_exports>);
-  static_assert(std::ranges::viewable_range<module_exports::all_range>);
-  static_assert(std::ranges::viewable_range<module_exports::ordinal_range>);
-  static_assert(std::ranges::viewable_range<module_exports::named_range>);
+  static_assert(omni::concepts::export_range<named_exports, omni::default_hash, named_export>);
+  static_assert(std::ranges::viewable_range<named_exports>);
+
+} // namespace omni
+
+#include <cstddef>
+#include <iterator>
+#include <ranges>
+
+namespace omni {
+
+  class ordinal_exports {
+   public:
+    ordinal_exports() = default;
+    explicit ordinal_exports(omni::address module_base) noexcept: export_dir_view_(module_base) {}
+
+    [[nodiscard]] std::size_t size() const noexcept {
+      return export_dir_view_.functions_count();
+    }
+
+    [[nodiscard]] std::uint32_t ordinal(std::size_t index) const noexcept {
+      return export_dir_view_.ordinal(index);
+    }
+
+    [[nodiscard]] omni::address address(std::size_t index) const noexcept {
+      return export_dir_view_.address(index);
+    }
+
+    [[nodiscard]] bool is_forwarded(omni::address export_address) const noexcept {
+      return export_dir_view_.is_forwarded(export_address);
+    }
+
+    [[nodiscard]] const win::export_directory* directory() const noexcept {
+      return export_dir_view_.native_handle();
+    }
+
+    class iterator {
+     public:
+      using iterator_category = std::bidirectional_iterator_tag;
+      using value_type = ordinal_export;
+      using difference_type = std::ptrdiff_t;
+      using pointer = const value_type*;
+      using reference = const value_type&;
+
+      iterator() noexcept = default;
+      ~iterator() = default;
+      iterator(const iterator&) = default;
+      iterator(iterator&&) = default;
+      iterator& operator=(iterator&&) = default;
+
+      iterator(detail::export_directory_view export_dir_view, std::size_t index) noexcept
+        : export_dir_view_(export_dir_view), index_(index) {
+        update_current_export();
+      }
+
+      [[nodiscard]] reference operator*() const noexcept {
+        return current_export_;
+      }
+
+      [[nodiscard]] pointer operator->() const noexcept {
+        return &current_export_;
+      }
+
+      iterator& operator=(const iterator& other) noexcept {
+        if (this != &other) {
+          export_dir_view_ = other.export_dir_view_;
+          index_ = other.index_;
+          current_export_ = other.current_export_;
+        }
+
+        return *this;
+      }
+
+      iterator& operator++() noexcept {
+        if (export_dir_view_.present() && index_ < export_dir_view_.functions_count()) {
+          ++index_;
+        }
+
+        update_current_export();
+        return *this;
+      }
+
+      iterator operator++(int) noexcept {
+        iterator temp = *this;
+        ++(*this);
+        return temp;
+      }
+
+      iterator& operator--() noexcept {
+        if (export_dir_view_.present() && index_ > 0) {
+          --index_;
+        }
+
+        update_current_export();
+        return *this;
+      }
+
+      iterator operator--(int) noexcept {
+        iterator temp = *this;
+        --(*this);
+        return temp;
+      }
+
+      [[nodiscard]] bool operator==(const iterator& other) const noexcept {
+        return index_ == other.index_ && export_dir_view_ == other.export_dir_view_;
+      }
+
+      [[nodiscard]] bool operator!=(const iterator& other) const noexcept {
+        return !(*this == other);
+      }
+
+     private:
+      void update_current_export() noexcept {
+        if (!export_dir_view_.present() || index_ >= export_dir_view_.functions_count()) {
+          current_export_ = value_type{};
+          return;
+        }
+
+        const auto export_address = export_dir_view_.address(index_);
+
+        current_export_ = value_type{
+          .ordinal = export_dir_view_.ordinal(index_),
+          .address = export_address,
+          .module_base = export_dir_view_.module_base(),
+        };
+
+        if (export_dir_view_.is_forwarded(export_address)) {
+          current_export_.forwarder_string = forwarder_string::parse(export_address.ptr<const char>());
+        }
+      }
+
+      detail::export_directory_view export_dir_view_;
+      std::size_t index_{0};
+      mutable value_type current_export_{};
+    };
+
+    static_assert(std::bidirectional_iterator<iterator>);
+
+    [[nodiscard]] iterator begin() const noexcept {
+      return {export_dir_view_, 0};
+    }
+
+    [[nodiscard]] iterator end() const noexcept {
+      return {export_dir_view_, size()};
+    }
+
+    [[nodiscard]] iterator find(std::uint32_t ordinal) const noexcept {
+      if (directory() == nullptr || ordinal < directory()->base) {
+        return end();
+      }
+
+      const auto function_index = static_cast<std::size_t>(ordinal - directory()->base);
+      if (function_index >= size()) {
+        return end();
+      }
+
+      return {export_dir_view_, function_index};
+    }
+
+    [[nodiscard]] iterator find_if(std::predicate<const typename iterator::value_type&> auto predicate) const {
+      if (directory() == nullptr) {
+        return end();
+      }
+
+      return std::ranges::find_if(*this, predicate);
+    }
+
+   private:
+    [[nodiscard]] omni::address module_base() const noexcept {
+      return export_dir_view_.module_base();
+    }
+
+    detail::export_directory_view export_dir_view_;
+  };
+
+  static_assert(omni::concepts::export_range<ordinal_exports, std::uint32_t, ordinal_export>);
+  static_assert(std::ranges::viewable_range<ordinal_exports>);
 
 } // namespace omni
 
@@ -2003,8 +2164,12 @@ namespace omni {
       return assert_entry()->path.to_path(fmt);
     }
 
-    [[nodiscard]] module_exports exports() const noexcept {
-      return module_exports{assert_entry()->base_address};
+    [[nodiscard]] named_exports named_exports() const noexcept {
+      return omni::named_exports{assert_entry()->base_address};
+    }
+
+    [[nodiscard]] ordinal_exports ordinal_exports() const noexcept {
+      return omni::ordinal_exports{assert_entry()->base_address};
     }
 
     [[nodiscard]] bool present() const noexcept {
@@ -2253,21 +2418,21 @@ namespace omni {
 
   // Overloads to find an export in loaded module(s) EAT
 
-  inline module_export get_export(concepts::hash auto export_name, omni::module module);
-  inline module_export get_export(default_hash export_name, omni::module module);
+  inline named_export get_export(concepts::hash auto export_name, omni::module module);
+  inline named_export get_export(default_hash export_name, omni::module module);
 
   template <concepts::hash Hasher>
-  inline module_export get_export(Hasher export_name, Hasher module_name);
-  inline module_export get_export(default_hash export_name, default_hash module_name);
+  inline named_export get_export(Hasher export_name, Hasher module_name);
+  inline named_export get_export(default_hash export_name, default_hash module_name);
 
-  inline module_export get_export(concepts::hash auto export_name);
-  inline module_export get_export(default_hash export_name);
+  inline named_export get_export(concepts::hash auto export_name);
+  inline named_export get_export(default_hash export_name);
 
   template <concepts::hash Hasher>
-  inline module_export get_export(std::uint32_t ordinal, omni::module module, omni::use_ordinal_t);
-  inline module_export get_export(std::uint32_t ordinal, omni::module module, omni::use_ordinal_t);
-  inline module_export get_export(std::uint32_t ordinal, concepts::hash auto module_name, omni::use_ordinal_t);
-  inline module_export get_export(std::uint32_t ordinal, default_hash module_name, omni::use_ordinal_t);
+  inline ordinal_export get_export(std::uint32_t ordinal, omni::module module, omni::use_ordinal_t);
+  inline ordinal_export get_export(std::uint32_t ordinal, omni::module module, omni::use_ordinal_t);
+  inline ordinal_export get_export(std::uint32_t ordinal, concepts::hash auto module_name, omni::use_ordinal_t);
+  inline ordinal_export get_export(std::uint32_t ordinal, default_hash module_name, omni::use_ordinal_t);
 
 } // namespace omni
 
@@ -2507,38 +2672,87 @@ namespace omni {
 
   namespace detail {
 
+    inline named_export to_named_export(const omni::ordinal_export& export_entry) {
+      named_export converted_export{
+        .address = export_entry.address,
+        .forwarder_string = export_entry.forwarder_string,
+        .forwarder_api_set = export_entry.forwarder_api_set,
+        .module_base = export_entry.module_base,
+      };
+
+      auto module = omni::get_module(export_entry.module_base);
+      if (!module.present()) {
+        return converted_export;
+      }
+
+      auto exports = module.named_exports();
+      auto export_it = exports.find_if(
+        [address = export_entry.address](const omni::named_export& candidate) { return candidate.address == address; });
+      if (export_it != exports.end()) {
+        converted_export = *export_it;
+        converted_export.forwarder_api_set = export_entry.forwarder_api_set;
+      }
+
+      return converted_export;
+    }
+
+    inline ordinal_export to_ordinal_export(const omni::named_export& export_entry) {
+      ordinal_export converted_export{
+        .address = export_entry.address,
+        .forwarder_string = export_entry.forwarder_string,
+        .forwarder_api_set = export_entry.forwarder_api_set,
+        .module_base = export_entry.module_base,
+      };
+
+      auto module = omni::get_module(export_entry.module_base);
+      if (!module.present()) {
+        return converted_export;
+      }
+
+      auto exports = module.ordinal_exports();
+      auto export_it = exports.find_if(
+        [address = export_entry.address](const omni::ordinal_export& candidate) { return candidate.address == address; });
+      if (export_it != exports.end()) {
+        converted_export = *export_it;
+        converted_export.forwarder_api_set = export_entry.forwarder_api_set;
+      }
+
+      return converted_export;
+    }
+
     template <concepts::hash Hasher>
-    inline module_export resolve_forwarded_export(omni::address export_address) {
+    inline named_export resolve_forwarded_export(const omni::named_export& export_entry) {
       // Learn more here: https://devblogs.microsoft.com/oldnewthing/20060719-24/?p=30473
       // In a forwarded export, the address is a string containing
       // information about the actual export and its location
       // They are always presented as "module_name.export_name"
-      const auto* forwarder_str = export_address.ptr<const char>();
+      auto forwarder = export_entry.forwarder_string;
+      if (!forwarder.present()) {
+        // Split forwarded export to module name and real export name
+        forwarder = forwarder_string::parse(export_entry.address.ptr<const char>());
+      }
 
-      // Split forwarded export to module name and real export name
-      forwarder_string forwarder{forwarder_string::parse(forwarder_str)};
       if (forwarder.function.empty()) {
         return {};
       }
 
-      const auto resolve_export_in_module = [&forwarder](Hasher module_name_hash) -> module_export {
+      const auto resolve_export_in_module = [&forwarder](Hasher module_name_hash) -> named_export {
         if (forwarder.is_ordinal()) {
-          return omni::get_export<Hasher>(forwarder.to_ordinal(), module_name_hash, omni::use_ordinal);
+          return detail::to_named_export(omni::get_export<Hasher>(forwarder.to_ordinal(), module_name_hash, omni::use_ordinal));
         }
+
         return omni::get_export<Hasher>(omni::hash<Hasher>(forwarder.function), module_name_hash);
       };
 
       // Try to search for the real export with a pre-known module name
-      module_export real_export = resolve_export_in_module(omni::hash<Hasher>(forwarder.module));
+      named_export real_export = resolve_export_in_module(omni::hash<Hasher>(forwarder.module));
       if (real_export.present()) {
         return real_export;
       }
 
       // Direct lookup by forwarder target failed, try api-set resolution next
-      module_export forwarded_export{
-        .is_forwarded = true,
-        .forwarder_string = forwarder,
-      };
+      named_export forwarded_export = export_entry;
+      forwarded_export.forwarder_string = forwarder;
 
       // We cannot know whether a module is an API-set. The only way
       // to find out is to scan the names of API-set contracts to
@@ -2559,7 +2773,7 @@ namespace omni {
         }
 
         auto module_name_hash = omni::hash<Hasher>(host.value);
-        module_export host_export = resolve_export_in_module(module_name_hash);
+        named_export host_export = resolve_export_in_module(module_name_hash);
         if (host_export.present()) {
           return host_export;
         }
@@ -2569,7 +2783,55 @@ namespace omni {
       // into the process. We've done everything we can, so we return
       // the API-set that we couldn't resolve to the caller
       forwarded_export.forwarder_api_set = api_set;
+      return forwarded_export;
+    }
 
+    template <concepts::hash Hasher>
+    inline ordinal_export resolve_forwarded_export(const omni::ordinal_export& export_entry) {
+      auto forwarder = export_entry.forwarder_string;
+      if (!forwarder.present()) {
+        forwarder = forwarder_string::parse(export_entry.address.ptr<const char>());
+      }
+
+      if (forwarder.function.empty()) {
+        return {};
+      }
+
+      const auto resolve_export_in_module = [&forwarder](Hasher module_name_hash) -> ordinal_export {
+        if (forwarder.is_ordinal()) {
+          return omni::get_export<Hasher>(forwarder.to_ordinal(), module_name_hash, omni::use_ordinal);
+        }
+
+        return detail::to_ordinal_export(omni::get_export<Hasher>(omni::hash<Hasher>(forwarder.function), module_name_hash));
+      };
+
+      ordinal_export real_export = resolve_export_in_module(omni::hash<Hasher>(forwarder.module));
+      if (real_export.present()) {
+        return real_export;
+      }
+
+      ordinal_export forwarded_export = export_entry;
+      forwarded_export.forwarder_string = forwarder;
+
+      auto api_set = omni::get_api_set(omni::hash<Hasher>(forwarder.module));
+      if (!api_set.present()) {
+        return forwarded_export;
+      }
+
+      for (const omni::api_set_host& host : api_set.hosts()) {
+        bool host_name_empty = not host.present() or host.value.empty();
+        if (host_name_empty) {
+          continue;
+        }
+
+        auto module_name_hash = omni::hash<Hasher>(host.value);
+        ordinal_export host_export = resolve_export_in_module(module_name_hash);
+        if (host_export.present()) {
+          return host_export;
+        }
+      }
+
+      forwarded_export.forwarder_api_set = api_set;
       return forwarded_export;
     }
 
@@ -2603,82 +2865,79 @@ namespace omni {
     return *it;
   }
 
-  inline module_export get_export(concepts::hash auto export_name, omni::module module) {
+  inline named_export get_export(concepts::hash auto export_name, omni::module module) {
     if (!module.present()) {
       return {};
     }
 
-    auto exports = module.exports();
+    auto exports = module.named_exports();
     auto export_it = exports.find(export_name);
     if (export_it == exports.end()) {
-      // The named export that the caller is looking for was
-      // not found in the expected module
       return {};
     }
 
-    if (export_it->is_forwarded) {
-      return detail::resolve_forwarded_export<decltype(export_name)>(export_it->address);
+    if (export_it->is_forwarded()) {
+      return detail::resolve_forwarded_export<decltype(export_name)>(*export_it);
     }
 
     return *export_it;
   }
 
-  inline module_export get_export(default_hash export_name, omni::module module) {
+  inline named_export get_export(default_hash export_name, omni::module module) {
     return omni::get_export<default_hash>(export_name, module);
   }
 
   template <concepts::hash Hasher>
-  inline module_export get_export(Hasher export_name, Hasher module_name) {
+  inline named_export get_export(Hasher export_name, Hasher module_name) {
     return omni::get_export<Hasher>(export_name, omni::get_module(module_name));
   }
 
-  inline module_export get_export(default_hash export_name, default_hash module_name) {
+  inline named_export get_export(default_hash export_name, default_hash module_name) {
     return omni::get_export<default_hash>(export_name, omni::get_module(module_name));
   }
 
-  inline module_export get_export(concepts::hash auto export_name) {
+  inline named_export get_export(concepts::hash auto export_name) {
     for (const omni::module& module : omni::modules{}) {
-      if (auto module_export = omni::get_export(export_name, module); module_export) {
-        return module_export;
+      if (auto named_export = omni::get_export(export_name, module); named_export) {
+        return named_export;
       }
     }
+
     return {};
   }
 
-  inline module_export get_export(default_hash export_name) {
+  inline named_export get_export(default_hash export_name) {
     return omni::get_export<default_hash>(export_name);
   }
 
   template <concepts::hash Hasher>
-  inline module_export get_export(std::uint32_t ordinal, omni::module module, omni::use_ordinal_t) {
+  inline ordinal_export get_export(std::uint32_t ordinal, omni::module module, omni::use_ordinal_t) {
     if (!module.present()) {
       return {};
     }
 
-    auto exports = module.exports();
-    auto export_it = exports.find(ordinal, omni::use_ordinal);
+    auto exports = module.ordinal_exports();
+    auto export_it = exports.find(ordinal);
     if (export_it == exports.end()) {
-      // The ordinal export that the caller is looking for was
-      // not found in the expected module
       return {};
     }
 
-    if (export_it->is_forwarded) {
-      return detail::resolve_forwarded_export<Hasher>(export_it->address);
+    if (export_it->is_forwarded()) {
+      return detail::resolve_forwarded_export<Hasher>(*export_it);
     }
 
     return *export_it;
   }
 
-  inline module_export get_export(std::uint32_t ordinal, omni::module module, omni::use_ordinal_t) {
+  inline ordinal_export get_export(std::uint32_t ordinal, omni::module module, omni::use_ordinal_t) {
     return omni::get_export<default_hash>(ordinal, module, omni::use_ordinal);
   }
 
-  inline module_export get_export(std::uint32_t ordinal, concepts::hash auto module_name, omni::use_ordinal_t) {
+  inline ordinal_export get_export(std::uint32_t ordinal, concepts::hash auto module_name, omni::use_ordinal_t) {
     return omni::get_export<decltype(module_name)>(ordinal, omni::get_module(module_name), omni::use_ordinal);
   }
 
-  inline module_export get_export(std::uint32_t ordinal, default_hash module_name, omni::use_ordinal_t) {
+  inline ordinal_export get_export(std::uint32_t ordinal, default_hash module_name, omni::use_ordinal_t) {
     return omni::get_export<default_hash>(ordinal, module_name, omni::use_ordinal);
   }
 
@@ -3379,7 +3638,7 @@ namespace omni {
       }
     };
 
-    inline detail::memory_cache<export_cache_key, omni::module_export, export_cache_key_hasher> exports_cache;
+    inline detail::memory_cache<export_cache_key, omni::named_export, export_cache_key_hasher> exports_cache;
   } // namespace detail
 #endif
 
@@ -3423,13 +3682,13 @@ namespace omni {
       return invoke(std::forward<Args>(args)...);
     }
 
-    [[nodiscard]] omni::module_export module_export() const noexcept {
-      return export_.value_or(omni::module_export{});
+    [[nodiscard]] omni::named_export named_export() const noexcept {
+      return export_.value_or(omni::named_export{});
     }
 
    private:
     template <concepts::hash Hasher>
-    static std::expected<omni::module_export, std::error_code> resolve_module_export(Hasher export_name, Hasher module_name) {
+    static std::expected<omni::named_export, std::error_code> resolve_module_export(Hasher export_name, Hasher module_name) {
 #ifdef OMNI_HAS_CACHING
       detail::export_cache_key export_cache_key{
         .export_name = export_name.value(),
@@ -3443,7 +3702,7 @@ namespace omni {
           return std::unexpected(omni::error::module_not_loaded);
         }
 
-        omni::module_export fresh_export = omni::get_export(export_name, module);
+        omni::named_export fresh_export = omni::get_export(export_name, module);
         if (!fresh_export.present()) {
           return std::unexpected(omni::error::export_not_found);
         }
@@ -3459,7 +3718,7 @@ namespace omni {
         return std::unexpected(omni::error::module_not_loaded);
       }
 
-      omni::module_export fresh_export = omni::get_export(export_name, module);
+      omni::named_export fresh_export = omni::get_export(export_name, module);
       if (!fresh_export.present()) {
         return std::unexpected(omni::error::export_not_found);
       }
@@ -3468,7 +3727,7 @@ namespace omni {
 #endif
     }
 
-    static std::expected<omni::module_export, std::error_code> resolve_module_export(concepts::hash auto export_name) {
+    static std::expected<omni::named_export, std::error_code> resolve_module_export(concepts::hash auto export_name) {
 #ifdef OMNI_HAS_CACHING
       detail::export_cache_key export_cache_key{.export_name = export_name.value()};
       auto module_export = detail::exports_cache.try_get(export_cache_key);
@@ -3478,7 +3737,7 @@ namespace omni {
       // refresh the cached export, this adds a fast O(n) loaded-module
       // check to each export lookup to detect stale cache entries
       if (!module_export or !module_export->present() or !omni::modules{}.contains(module_export->module_base)) {
-        omni::module_export fresh_export = omni::get_export(export_name);
+        omni::named_export fresh_export = omni::get_export(export_name);
         if (!fresh_export.present()) {
           return std::unexpected(omni::error::export_not_found);
         }
@@ -3489,7 +3748,7 @@ namespace omni {
 
       return *module_export;
 #else
-      omni::module_export fresh_export = omni::get_export(export_name);
+      omni::named_export fresh_export = omni::get_export(export_name);
       if (!fresh_export.present()) {
         return std::unexpected(omni::error::export_not_found);
       }
@@ -3498,14 +3757,14 @@ namespace omni {
 #endif
     }
 
-    std::expected<omni::module_export, std::error_code> export_;
+    std::expected<omni::named_export, std::error_code> export_;
   };
 
   template <typename T, typename... Params>
   class lazy_importer<T (*)(Params...)> : private lazy_importer<T> {
    public:
     using lazy_importer<T>::lazy_importer;
-    using lazy_importer<T>::module_export;
+    using lazy_importer<T>::named_export;
 
     std::expected<T, std::error_code> try_invoke(Params... args) {
       return lazy_importer<T>::try_invoke(args...);
@@ -3525,7 +3784,7 @@ namespace omni {
   class lazy_importer<T(__stdcall*)(Params...)> : private lazy_importer<T> {
    public:
     using lazy_importer<T>::lazy_importer;
-    using lazy_importer<T>::module_export;
+    using lazy_importer<T>::named_export;
 
     std::expected<T, std::error_code> try_invoke(Params... args) {
       return lazy_importer<T>::try_invoke(args...);
@@ -4128,7 +4387,7 @@ namespace omni {
   // Syscall ID is at an offset of 4 bytes from the specified address.
   // Not considering the situation when EDR hook is installed
   // Learn more here: https://github.com/annihilatorq/shadow_syscall/issues/1
-  inline std::expected<std::uint32_t, std::error_code> default_syscall_id_parser(const omni::module_export& module_export) {
+  inline std::expected<std::uint32_t, std::error_code> default_syscall_id_parser(const omni::named_export& module_export) {
     auto* address = module_export.address.ptr<std::uint8_t>();
 
     for (std::size_t i{}; i < 24; ++i) {
@@ -4145,7 +4404,7 @@ namespace omni {
     requires(omni::detail::is_x64)
   class syscaller {
    public:
-    using syscall_id_parser = detail::inplace_function<std::expected<std::uint32_t, std::error_code>(omni::module_export)>;
+    using syscall_id_parser = detail::inplace_function<std::expected<std::uint32_t, std::error_code>(omni::named_export)>;
 
     explicit syscaller(concepts::hash auto export_name, syscall_id_parser parser = default_syscall_id_parser)
       : syscall_id_parser_(std::move(parser)), syscall_id_(resolve_syscall_id(export_name)) {
@@ -4201,12 +4460,12 @@ namespace omni {
         return cached_syscall_id.value();
       }
 #endif
-      omni::module_export module_export = omni::get_export(export_name);
-      if (!module_export.present()) {
+      omni::named_export named_export = omni::get_export(export_name);
+      if (!named_export.present()) {
         return std::unexpected(omni::error::export_not_found);
       }
 
-      auto parsed_syscall_id = syscall_id_parser_(module_export);
+      auto parsed_syscall_id = syscall_id_parser_(named_export);
       if (!parsed_syscall_id) {
         return std::unexpected(parsed_syscall_id.error());
       }
