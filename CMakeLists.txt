@@ -41,3 +41,7 @@ if(OMNI_BUILD_TESTS)
   include(CTest)
   add_subdirectory(tests)
 endif()
+
+if(OMNI_BUILD_BENCHMARKS)
+  add_subdirectory(benchmarks)
+endif()
