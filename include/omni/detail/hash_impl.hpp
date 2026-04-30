@@ -54,6 +54,20 @@ namespace omni::detail {
       return value;
     }
 
+    template <typename CharT>
+    [[nodiscard]] value_type operator()(const CharT* string) {
+      T value{FNV_offset_basis};
+
+      for (;;) {
+        const auto ch = *string++;
+        if (ch == static_cast<CharT>('\0')) {
+          return value;
+        }
+
+        value = fnv1a_append_bytes<>(value, ch);
+      }
+    }
+
     [[nodiscard]] value_type value() const {
       return value_;
     }

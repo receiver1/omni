@@ -177,15 +177,15 @@ namespace omni {
     }
 
    private:
-    template <typename Hash>
-    [[nodiscard]] iterator find_by_hashed_name(Hash export_name_hash) const noexcept {
+    template <typename Hasher>
+    [[nodiscard]] iterator find_by_hashed_name(Hasher export_name_hash) const noexcept {
       if (directory() == nullptr) {
         return end();
       }
 
       for (std::size_t i{}; i < size(); ++i) {
-        std::string_view export_name_str = export_dir_view_.name(i);
-        if (export_name_hash == omni::hash<Hash>(export_name_str)) {
+        const char* export_name = export_dir_view_.name(i);
+        if (export_name_hash == omni::hash<Hasher>(export_name)) {
           return {export_dir_view_, i};
         }
       }
