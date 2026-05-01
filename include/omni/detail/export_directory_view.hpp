@@ -2,7 +2,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <string_view>
 
 #include "omni/address.hpp"
 #include "omni/win/directories.hpp"
@@ -71,14 +70,14 @@ namespace omni::detail {
       return export_dir_->base + static_cast<std::uint32_t>(function_index);
     }
 
-    [[nodiscard]] std::string_view name(std::size_t name_index) const noexcept {
+    [[nodiscard]] const char* name(std::size_t name_index) const noexcept {
       if (export_dir_ == nullptr || module_base_ == nullptr || name_index >= names_count()) {
         return {};
       }
 
       auto* names_table = export_dir_->names_table(module_base_.value());
 
-      return std::string_view{module_base_.offset<const char*>(names_table[name_index])};
+      return module_base_.offset<const char*>(names_table[name_index]);
     }
 
     [[nodiscard]] bool is_forwarded(omni::address export_address) const noexcept {

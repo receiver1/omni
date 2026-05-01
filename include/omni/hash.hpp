@@ -29,6 +29,11 @@ namespace omni {
     return T{}(object);
   }
 
+  template <typename T, typename CharT>
+  [[nodiscard]] constexpr auto hash(const CharT* string) {
+    return T{}(string);
+  }
+
   namespace literals {
     consteval omni::fnv1a32 operator""_fnv1a32(const char* str, std::size_t len) noexcept {
       return {std::string_view{str, len}};
