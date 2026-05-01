@@ -15,7 +15,9 @@
 #include "omni/detail/shellcode.hpp"
 #include "omni/error.hpp"
 #include "omni/hash.hpp"
-#include "omni/impl/syscall.inl"
+#if defined(OMNI_COMPILER_CLANG) || defined(OMNI_COMPILER_GCC)
+#  include "omni/impl/syscall.inl"
+#endif
 #include "omni/module_export.hpp"
 #include "omni/status.hpp"
 
@@ -66,6 +68,7 @@ namespace omni {
     }
   };
 
+#if defined(OMNI_COMPILER_CLANG) || defined(OMNI_COMPILER_GCC)
   struct inline_syscall_invoker {
     template <typename T, typename... Args>
     T operator()(std::uint32_t syscall_id, Args&&... args) {
@@ -76,6 +79,7 @@ namespace omni {
       }
     }
   };
+#endif
 
   template <typename Parser, typename Invoker>
   struct options {
@@ -89,9 +93,8 @@ namespace omni {
     requires(omni::detail::is_x64)
   class syscaller {
    public:
-    explicit syscaller(concepts::hash auto export_name)
-      : options_(default_options{}), syscall_id_(resolve_syscall_id(export_name)) {}
-    explicit syscaller(default_hash export_name): options_(default_options{}), syscall_id_(resolve_syscall_id(export_name)) {}
+    explicit syscaller(concepts::hash auto export_name): options_{}, syscall_id_(resolve_syscall_id(export_name)) {}
+    explicit syscaller(default_hash export_name): options_{}, syscall_id_(resolve_syscall_id(export_name)) {}
 
     template <typename... Args>
     std::expected<T, std::error_code> try_invoke(Args&&... args) {

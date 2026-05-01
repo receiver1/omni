@@ -19,7 +19,9 @@
 #ifndef JM_INLINE_SYSCALL_INL
 #define JM_INLINE_SYSCALL_INL
 
-#include "omni/syscall.hpp"
+#include "omni/detail/config.hpp"
+
+#if defined(OMNI_COMPILER_CLANG) || defined(OMNI_COMPILER_GCC)
 
 #if defined(_MSC_VER)
 #  define JM_INLINE_SYSCALL_FORCEINLINE __forceinline
@@ -481,5 +483,7 @@ namespace omni {
   } // namespace detail
 
 } // namespace omni
+
+#endif // defined(OMNI_COMPILER_CLANG) || defined(OMNI_COMPILER_GCC)
 
 #endif // JM_INLINE_SYSCALL_INL
