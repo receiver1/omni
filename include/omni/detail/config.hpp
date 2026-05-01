@@ -48,10 +48,10 @@
 #  endif
 #endif
 
-#if defined(_MSC_VER)
+#if defined(OMNI_COMPILER_MSVC_COMPAT)
 #  define OMNI_FORCEINLINE __forceinline
-#else
-#  define OMNI_FORCEINLINE __attribute__((always_inline))
+#elif defined(OMNI_COMPILER_CLANG) || defined(OMNI_COMPILER_GCC)
+#  define OMNI_FORCEINLINE inline __attribute__((__always_inline__))
 #endif
 
 namespace omni::detail {
