@@ -339,6 +339,32 @@ namespace omni::detail {
       return value;
     }
 
+    template <typename CharT>
+    [[nodiscard]] value_type operator()(const CharT* string) const noexcept {
+      constexpr auto alphabet_last_index = static_cast<value_type>('Z' - 'A');
+      T value{FNV_offset_basis};
+
+      for (;;) {
+        const auto ch = *string++;
+        if (ch == static_cast<CharT>('\0')) {
+          return value;
+        }
+
+        auto unsigned_ch = static_cast<value_type>(static_cast<std::make_unsigned_t<CharT>>(ch));
+
+        // Keep this as a simple range check and let the optimizer pick branch/cmov/setcc.
+        // Forcing branchless arithmetic lengthens the FNV loop-carried dependency chain
+        const bool is_uppercase = unsigned_ch - static_cast<value_type>('A') <= alphabet_last_index;
+        if (is_uppercase) {
+          unsigned_ch += 32U;
+        }
+
+        // Inlined FNV1A byte append
+        value ^= unsigned_ch;
+        value *= FNV_prime;
+      }
+    }
+
     [[nodiscard]] value_type value() const {
       return value_;
     }
@@ -398,6 +424,11 @@ namespace omni {
   template <typename T>
   [[nodiscard]] constexpr auto hash(concepts::hashable auto object) {
     return T{}(object);
+  }
+
+  template <typename T, typename CharT>
+  [[nodiscard]] constexpr auto hash(const CharT* string) {
+    return T{}(string);
   }
 
   namespace literals {
@@ -626,7 +657,6 @@ namespace omni::concepts {
 
 #include <cstddef>
 #include <cstdint>
-#include <string_view>
 
 #include <cstdint>
 #include <limits>
@@ -1091,14 +1121,14 @@ namespace omni::detail {
       return export_dir_->base + static_cast<std::uint32_t>(function_index);
     }
 
-    [[nodiscard]] std::string_view name(std::size_t name_index) const noexcept {
+    [[nodiscard]] const char* name(std::size_t name_index) const noexcept {
       if (export_dir_ == nullptr || module_base_ == nullptr || name_index >= names_count()) {
         return {};
       }
 
       auto* names_table = export_dir_->names_table(module_base_.value());
 
-      return std::string_view{module_base_.offset<const char*>(names_table[name_index])};
+      return module_base_.offset<const char*>(names_table[name_index]);
     }
 
     [[nodiscard]] bool is_forwarded(omni::address export_address) const noexcept {
@@ -1571,15 +1601,15 @@ namespace omni {
       iterator& operator=(iterator&&) = default;
 
       iterator(detail::export_directory_view export_dir_view, std::size_t index) noexcept
-        : export_dir_view_(export_dir_view), index_(index) {
-        update_current_export();
-      }
+        : export_dir_view_(export_dir_view), index_(index) {}
 
       [[nodiscard]] reference operator*() const noexcept {
+        ensure_current_export();
         return current_export_;
       }
 
       [[nodiscard]] pointer operator->() const noexcept {
+        ensure_current_export();
         return &current_export_;
       }
 
@@ -1588,6 +1618,7 @@ namespace omni {
           export_dir_view_ = other.export_dir_view_;
           index_ = other.index_;
           current_export_ = other.current_export_;
+          current_export_ready_ = other.current_export_ready_;
         }
 
         return *this;
@@ -1598,7 +1629,7 @@ namespace omni {
           ++index_;
         }
 
-        update_current_export();
+        current_export_ready_ = false;
         return *this;
       }
 
@@ -1613,7 +1644,7 @@ namespace omni {
           --index_;
         }
 
-        update_current_export();
+        current_export_ready_ = false;
         return *this;
       }
 
@@ -1632,15 +1663,21 @@ namespace omni {
       }
 
      private:
-      void update_current_export() noexcept {
+      void ensure_current_export() const noexcept {
+        if (current_export_ready_) {
+          return;
+        }
+
         if (!export_dir_view_.present() || index_ >= export_dir_view_.names_count()) {
           current_export_ = value_type{};
+          current_export_ready_ = true;
           return;
         }
 
         const auto function_index = export_dir_view_.function_index(index_);
         if (function_index == detail::export_directory_view::npos) {
           current_export_ = value_type{};
+          current_export_ready_ = true;
           return;
         }
 
@@ -1655,11 +1692,14 @@ namespace omni {
         if (export_dir_view_.is_forwarded(export_address)) {
           current_export_.forwarder_string = forwarder_string::parse(export_address.ptr<const char>());
         }
+
+        current_export_ready_ = true;
       }
 
       detail::export_directory_view export_dir_view_;
       std::size_t index_{0};
       mutable value_type current_export_{};
+      mutable bool current_export_ready_{false};
     };
 
     static_assert(std::bidirectional_iterator<iterator>);
@@ -1689,24 +1729,20 @@ namespace omni {
     }
 
    private:
-    template <typename Hash>
-    [[nodiscard]] iterator find_by_hashed_name(Hash export_name_hash) const noexcept {
+    template <typename Hasher>
+    [[nodiscard]] iterator find_by_hashed_name(Hasher export_name_hash) const noexcept {
       if (directory() == nullptr) {
         return end();
       }
 
       for (std::size_t i{}; i < size(); ++i) {
-        std::string_view export_name_str = export_dir_view_.name(i);
-        if (export_name_hash == omni::hash<Hash>(export_name_str)) {
+        const char* export_name = export_dir_view_.name(i);
+        if (export_name_hash == omni::hash<Hasher>(export_name)) {
           return {export_dir_view_, i};
         }
       }
 
       return end();
-    }
-
-    [[nodiscard]] omni::address module_base() const noexcept {
-      return export_dir_view_.module_base();
     }
 
     detail::export_directory_view export_dir_view_;
