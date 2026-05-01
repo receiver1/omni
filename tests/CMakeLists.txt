@@ -13,6 +13,11 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
   list(REMOVE_ITEM omni_unit_test_sources "${CMAKE_CURRENT_LIST_DIR}/syscall.cpp")
 endif()
 
+if(NOT OMNI_SUPPORTS_INLINE_SYSCALL)
+  message(STATUS "[OMNI] Skipping inline syscall tests without OMNI_HAS_INLINE_SYSCALL")
+  list(REMOVE_ITEM omni_unit_test_sources "${CMAKE_CURRENT_LIST_DIR}/inline_syscall.cpp")
+endif()
+
 set(omni_unit_test_main "${CMAKE_CURRENT_LIST_DIR}/main.cpp")
 list(REMOVE_ITEM omni_unit_test_sources "${omni_unit_test_main}")
 
