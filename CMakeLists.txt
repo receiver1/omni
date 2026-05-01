@@ -42,7 +42,6 @@ if(OMNI_BUILD_TESTS)
   add_subdirectory(tests)
 endif()
 
-set(OMNI_BUILD_BENCHMARKS OFF)
 if(OMNI_BUILD_BENCHMARKS)
   add_subdirectory(benchmarks)
 endif()
