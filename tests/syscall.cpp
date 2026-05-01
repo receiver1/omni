@@ -61,7 +61,8 @@ ut::suite<"omni::syscall"> syscall_suite = [] {
       return omni::default_syscall_id_parser{}(module_export);
     };
 
-    omni::syscaller caller{syscall_name, omni::syscaller_options{.parser = parser}};
+    omni::syscaller_options<decltype(parser)> options{.parser = parser};
+    omni::syscaller caller{syscall_name, std::move(options)};
 
     process_basic_information syscall_info{};
     ULONG syscall_return_length{};
@@ -81,7 +82,8 @@ ut::suite<"omni::syscall"> syscall_suite = [] {
 #ifdef OMNI_HAS_CACHING
     expect(omni::detail::syscall_id_cache.contains(syscall_name.value()));
 
-    omni::syscaller cached_caller{syscall_name, omni::syscaller_options{.parser = parser}};
+    omni::syscaller_options<decltype(parser)> cached_caller_options{.parser = parser};
+    omni::syscaller cached_caller{syscall_name, std::move(cached_caller_options)};
 
     auto cached_status =
       cached_caller.try_invoke(::GetCurrentProcess(), 0U, &syscall_info, sizeof(syscall_info), &syscall_return_length);
@@ -110,7 +112,9 @@ ut::suite<"omni::syscall"> syscall_suite = [] {
       return std::unexpected(make_error_code(omni::error::syscall_id_not_found));
     };
 
-    omni::syscaller caller{syscall_name, omni::syscaller_options{.parser = parser}};
+    omni::syscaller_options<decltype(parser)> options{.parser = parser};
+    omni::syscaller caller{syscall_name, std::move(options)};
+
     auto result = caller.try_invoke();
 
     expect(parser_calls == 1);
@@ -121,7 +125,9 @@ ut::suite<"omni::syscall"> syscall_suite = [] {
 #ifdef OMNI_HAS_CACHING
     expect(not omni::detail::syscall_id_cache.contains(syscall_name.value()));
 
-    omni::syscaller cached_caller{syscall_name, omni::syscaller_options{.parser = parser}};
+    omni::syscaller_options<decltype(parser)> cached_caller_options{.parser = parser};
+    omni::syscaller cached_caller{syscall_name, std::move(cached_caller_options)};
+
     auto second_result = cached_caller.try_invoke();
 
     expect(parser_calls == 2);
