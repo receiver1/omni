@@ -54,7 +54,7 @@ Usage in this repository:
 `include/omni/detail/inline_syscall.hpp` is derived from `JustasMasiulis/inline_syscall`.
 
 Upstream license:
-https://github.com/can1357/linux-pe/blob/master/LICENSE.md
+https://github.com/JustasMasiulis/inline_syscall/blob/master/LICENSE
 
 License text:
 
