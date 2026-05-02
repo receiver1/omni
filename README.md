@@ -18,7 +18,7 @@
 - Split export views with `omni::named_exports` and `omni::ordinal_exports`
 - Forwarder-aware lookup helpers via `omni::get_export(...)`
 - Lazy imports via `omni::lazy_import` and `omni::lazy_importer`
-- x64 syscall wrappers via `omni::syscall` and `omni::syscaller`
+- x64 syscall wrappers via `omni::syscall` and `omni::syscaller`, plus `omni::inline_syscall` and `omni::inline_syscaller` on supported toolchains
 - API-set schema access via `omni::api_set`, `omni::api_sets`, and `omni::get_api_set`
 - Utility types for raw addresses, NT allocation, hashing, NTSTATUS decoding, and shared user data
 - Optional caching for lazy imports and syscall IDs
@@ -64,7 +64,7 @@ If you prefer an amalgamated distribution, the generated single-header build liv
 | Export types | `omni::named_export`, `omni::ordinal_export`, `omni::forwarder_string`, `omni::use_ordinal` |
 | Export lookup | `module.named_exports()`, `module.ordinal_exports()`, `omni::get_export(...)` |
 | Lazy imports | `omni::lazy_import`, `omni::lazy_importer` |
-| Syscalls | `omni::syscall`, `omni::syscaller`, `omni::status`, `omni::ntstatus` |
+| Syscalls | `omni::syscall`, `omni::syscaller`, `omni::inline_syscall`, `omni::inline_syscaller`, `omni::status`, `omni::ntstatus` |
 | API sets | `omni::api_set`, `omni::api_sets`, `omni::get_api_set` |
 | Utilities | `omni::address`, `omni::rw_allocator`, `omni::rx_allocator`, `omni::rwx_allocator`, `omni::fnv1a32`, `omni::fnv1a64`, `omni::hash_pair` |
 | Shared data | `omni::shared_user_data` |
@@ -125,6 +125,7 @@ Every file in [`examples/`](examples) builds as a standalone executable:
 | [`examples/module_exports.cpp`](examples/module_exports.cpp) | Raw named/ordinal export views, forwarded exports, and resolving forwarded targets |
 | [`examples/modules.cpp`](examples/modules.cpp) | Walking the loader list as a normal C++ range |
 | [`examples/shared_user_data.cpp`](examples/shared_user_data.cpp) | Reading `KUSER_SHARED_DATA` through a thin typed wrapper |
+| [`examples/inline_syscall.cpp`](examples/inline_syscall.cpp) | Direct inline syscall wrappers on supported x64 Clang/GCC-style toolchains |
 | [`examples/status.cpp`](examples/status.cpp) | Decoding `NTSTATUS` severity, facility, and code fields |
 | [`examples/syscall.cpp`](examples/syscall.cpp) | Typed and generic syscall wrappers over live `ntdll` stubs |
 
@@ -154,6 +155,7 @@ Useful CMake options:
 Notes:
 
 - `examples/syscall.cpp` and `tests/syscall.cpp` are skipped automatically on x86 builds.
+- `examples/inline_syscall.cpp` and `tests/inline_syscall.cpp` are skipped automatically when inline syscall support is unavailable.
 - Under MinGW/libstdc++, the example targets link `stdc++exp` automatically for `std::print`.
 
 ## Testing
@@ -167,7 +169,7 @@ Current coverage includes:
 - raw named and ordinal export enumeration
 - forwarded exports and `get_export(...)` resolution through normal modules and API sets
 - lazy import success paths, failure paths, typed overloads, and cache behavior
-- syscall resolution, custom parsers, typed/generic wrappers, and cache behavior
+- syscall resolution, custom parsers, typed/generic wrappers, inline syscall wrappers, and cache behavior
 - API-set contract lookup and host resolution
 
 Run the suite with:
@@ -195,6 +197,7 @@ Tests use [`boost.ut`](https://github.com/boost-ext/ut). If it is not already av
 
 - The library is Windows-specific.
 - Syscall helpers are x64-only and rely on recognizable `ntdll` syscall stubs.
+- On supported x64 Clang/GCC-style toolchains, `omni::inline_syscall` and `omni::inline_syscaller` issue the syscall instruction directly instead of going through a shellcode stub.
 - Hashes are ASCII case-insensitive, which makes them convenient for module and export names.
 - `api_sets::find(...)` accepts canonical contract names, versionless forms, and `.dll`-suffixed loader-style names.
 - Third-party notices are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
