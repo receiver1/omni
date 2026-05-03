@@ -48,13 +48,12 @@ ut::suite<"std::format"> std_format_suite = [] {
   };
 
   "formats omni::ntstatus"_test = [] {
-    expect(std::format("{}", omni::ntstatus::access_violation) ==
-           std::to_string(std::to_underlying(omni::ntstatus::access_violation)));
+    expect(std::format("{}", omni::ntstatus::access_violation) == "3221225477");
   };
 
   "formats omni::status"_test = [] {
     expect(std::format("{}", omni::status{}) == "0");
-    expect(std::format("{}", omni::status{static_cast<std::int32_t>(0xC0000005)}) == "-1073741819");
+    expect(std::format("{}", omni::status{static_cast<std::int32_t>(0xC0000005)}) == "3221225477");
   };
 
   "formats omni hash types"_test = [] {
