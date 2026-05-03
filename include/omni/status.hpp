@@ -277,15 +277,15 @@ namespace omni {
 } // namespace omni
 
 template <>
-struct std::formatter<omni::status> : std::formatter<omni::status::value_type> {
+struct std::formatter<omni::status> : std::formatter<std::uint32_t> {
   auto format(const omni::status& status, std::format_context& ctx) const {
-    return std::formatter<omni::status::value_type>::format(status.value, ctx);
+    return std::formatter<std::uint32_t>::format(static_cast<std::uint32_t>(status.value), ctx);
   }
 };
 
 template <>
-struct std::formatter<omni::ntstatus> : std::formatter<std::underlying_type_t<omni::ntstatus>> {
+struct std::formatter<omni::ntstatus> : std::formatter<std::uint32_t> {
   auto format(const omni::ntstatus& status, std::format_context& ctx) const {
-    return std::formatter<std::underlying_type_t<omni::ntstatus>>::format(std::to_underlying(status), ctx);
+    return std::formatter<std::uint32_t>::format(static_cast<std::uint32_t>(status), ctx);
   }
 };
