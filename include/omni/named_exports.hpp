@@ -59,15 +59,15 @@ namespace omni {
       iterator& operator=(iterator&&) = default;
 
       iterator(detail::export_directory_view export_dir_view, std::size_t index) noexcept
-        : export_dir_view_(export_dir_view), index_(index) {
-        update_current_export();
-      }
+        : export_dir_view_(export_dir_view), index_(index) {}
 
       [[nodiscard]] reference operator*() const noexcept {
+        ensure_current_export();
         return current_export_;
       }
 
       [[nodiscard]] pointer operator->() const noexcept {
+        ensure_current_export();
         return &current_export_;
       }
 
@@ -76,6 +76,7 @@ namespace omni {
           export_dir_view_ = other.export_dir_view_;
           index_ = other.index_;
           current_export_ = other.current_export_;
+          current_export_ready_ = other.current_export_ready_;
         }
 
         return *this;
@@ -86,7 +87,7 @@ namespace omni {
           ++index_;
         }
 
-        update_current_export();
+        current_export_ready_ = false;
         return *this;
       }
 
@@ -101,7 +102,7 @@ namespace omni {
           --index_;
         }
 
-        update_current_export();
+        current_export_ready_ = false;
         return *this;
       }
 
@@ -120,15 +121,21 @@ namespace omni {
       }
 
      private:
-      void update_current_export() noexcept {
+      void ensure_current_export() const noexcept {
+        if (current_export_ready_) {
+          return;
+        }
+
         if (!export_dir_view_.present() || index_ >= export_dir_view_.names_count()) {
           current_export_ = value_type{};
+          current_export_ready_ = true;
           return;
         }
 
         const auto function_index = export_dir_view_.function_index(index_);
         if (function_index == detail::export_directory_view::npos) {
           current_export_ = value_type{};
+          current_export_ready_ = true;
           return;
         }
 
@@ -143,11 +150,14 @@ namespace omni {
         if (export_dir_view_.is_forwarded(export_address)) {
           current_export_.forwarder_string = forwarder_string::parse(export_address.ptr<const char>());
         }
+
+        current_export_ready_ = true;
       }
 
       detail::export_directory_view export_dir_view_;
       std::size_t index_{0};
       mutable value_type current_export_{};
+      mutable bool current_export_ready_{false};
     };
 
     static_assert(std::bidirectional_iterator<iterator>);
@@ -177,24 +187,20 @@ namespace omni {
     }
 
    private:
-    template <typename Hash>
-    [[nodiscard]] iterator find_by_hashed_name(Hash export_name_hash) const noexcept {
+    template <typename Hasher>
+    [[nodiscard]] iterator find_by_hashed_name(Hasher export_name_hash) const noexcept {
       if (directory() == nullptr) {
         return end();
       }
 
       for (std::size_t i{}; i < size(); ++i) {
-        std::string_view export_name_str = export_dir_view_.name(i);
-        if (export_name_hash == omni::hash<Hash>(export_name_str)) {
+        const char* export_name = export_dir_view_.name(i);
+        if (export_name_hash == omni::hash<Hasher>(export_name)) {
           return {export_dir_view_, i};
         }
       }
 
       return end();
-    }
-
-    [[nodiscard]] omni::address module_base() const noexcept {
-      return export_dir_view_.module_base();
     }
 
     detail::export_directory_view export_dir_view_;

@@ -254,8 +254,22 @@ struct std::formatter<omni::address> : std::formatter<omni::address::value_type>
 #  define OMNI_ARCH_X86
 #endif
 
-#if !defined(OMNI_DISABLE_EXCEPTIONS) || defined(__cpp_exceptions) || defined(_CPPUNWIND)
-#  define OMNI_HAS_EXCEPTIONS
+#if !defined(OMNI_DISABLE_EXCEPTIONS)
+#  if defined(__clang__)
+#    if __has_feature(cxx_exceptions)
+#      define OMNI_HAS_EXCEPTIONS
+#    endif
+#  elif defined(_MSC_VER)
+#    if defined(_CPPUNWIND)
+#      define OMNI_HAS_EXCEPTIONS
+#    endif
+#  elif defined(__GNUC__)
+#    if defined(__EXCEPTIONS)
+#      define OMNI_HAS_EXCEPTIONS
+#    endif
+#  elif defined(__cpp_exceptions)
+#    define OMNI_HAS_EXCEPTIONS
+#  endif
 #endif
 
 #if !defined(OMNI_HAS_CACHING)
@@ -268,6 +282,28 @@ struct std::formatter<omni::address> : std::formatter<omni::address::value_type>
 #  if defined(OMNI_ENABLE_ERROR_STRINGS) || defined(DEBUG) || defined(_DEBUG)
 #    define OMNI_HAS_ERROR_STRINGS
 #  endif
+#endif
+
+#if !defined(OMNI_HAS_INLINE_SYSCALL)
+#  if defined(OMNI_ARCH_X64) && (defined(OMNI_COMPILER_CLANG) || defined(OMNI_COMPILER_GCC))
+#    define OMNI_HAS_INLINE_SYSCALL
+#  endif
+#endif
+
+#if defined(OMNI_COMPILER_MSVC_COMPAT)
+#  define OMNI_FORCEINLINE __forceinline
+#elif defined(OMNI_COMPILER_CLANG) || defined(OMNI_COMPILER_GCC)
+#  define OMNI_FORCEINLINE inline __attribute__((__always_inline__))
+#else
+#  define OMNI_FORCEINLINE inline
+#endif
+
+#if __has_cpp_attribute(msvc::no_unique_address)
+#  define OMNI_NO_UNIQUE_ADDRESS [[msvc::no_unique_address]]
+#elif __has_cpp_attribute(no_unique_address)
+#  define OMNI_NO_UNIQUE_ADDRESS [[no_unique_address]]
+#else
+#  define OMNI_NO_UNIQUE_ADDRESS
 #endif
 
 namespace omni::detail {
@@ -339,6 +375,32 @@ namespace omni::detail {
       return value;
     }
 
+    template <typename CharT>
+    [[nodiscard]] value_type operator()(const CharT* string) const noexcept {
+      constexpr auto alphabet_last_index = static_cast<value_type>('Z' - 'A');
+      T value{FNV_offset_basis};
+
+      for (;;) {
+        const auto ch = *string++;
+        if (ch == static_cast<CharT>('\0')) {
+          return value;
+        }
+
+        auto unsigned_ch = static_cast<value_type>(static_cast<std::make_unsigned_t<CharT>>(ch));
+
+        // Keep this as a simple range check and let the optimizer pick branch/cmov/setcc.
+        // Forcing branchless arithmetic lengthens the FNV loop-carried dependency chain
+        const bool is_uppercase = unsigned_ch - static_cast<value_type>('A') <= alphabet_last_index;
+        if (is_uppercase) {
+          unsigned_ch += 32U;
+        }
+
+        // Inlined FNV1A byte append
+        value ^= unsigned_ch;
+        value *= FNV_prime;
+      }
+    }
+
     [[nodiscard]] value_type value() const {
       return value_;
     }
@@ -398,6 +460,11 @@ namespace omni {
   template <typename T>
   [[nodiscard]] constexpr auto hash(concepts::hashable auto object) {
     return T{}(object);
+  }
+
+  template <typename T, typename CharT>
+  [[nodiscard]] constexpr auto hash(const CharT* string) {
+    return T{}(string);
   }
 
   namespace literals {
@@ -626,7 +693,6 @@ namespace omni::concepts {
 
 #include <cstddef>
 #include <cstdint>
-#include <string_view>
 
 #include <cstdint>
 #include <limits>
@@ -1091,14 +1157,14 @@ namespace omni::detail {
       return export_dir_->base + static_cast<std::uint32_t>(function_index);
     }
 
-    [[nodiscard]] std::string_view name(std::size_t name_index) const noexcept {
+    [[nodiscard]] const char* name(std::size_t name_index) const noexcept {
       if (export_dir_ == nullptr || module_base_ == nullptr || name_index >= names_count()) {
         return {};
       }
 
       auto* names_table = export_dir_->names_table(module_base_.value());
 
-      return std::string_view{module_base_.offset<const char*>(names_table[name_index])};
+      return module_base_.offset<const char*>(names_table[name_index]);
     }
 
     [[nodiscard]] bool is_forwarded(omni::address export_address) const noexcept {
@@ -1571,15 +1637,15 @@ namespace omni {
       iterator& operator=(iterator&&) = default;
 
       iterator(detail::export_directory_view export_dir_view, std::size_t index) noexcept
-        : export_dir_view_(export_dir_view), index_(index) {
-        update_current_export();
-      }
+        : export_dir_view_(export_dir_view), index_(index) {}
 
       [[nodiscard]] reference operator*() const noexcept {
+        ensure_current_export();
         return current_export_;
       }
 
       [[nodiscard]] pointer operator->() const noexcept {
+        ensure_current_export();
         return &current_export_;
       }
 
@@ -1588,6 +1654,7 @@ namespace omni {
           export_dir_view_ = other.export_dir_view_;
           index_ = other.index_;
           current_export_ = other.current_export_;
+          current_export_ready_ = other.current_export_ready_;
         }
 
         return *this;
@@ -1598,7 +1665,7 @@ namespace omni {
           ++index_;
         }
 
-        update_current_export();
+        current_export_ready_ = false;
         return *this;
       }
 
@@ -1613,7 +1680,7 @@ namespace omni {
           --index_;
         }
 
-        update_current_export();
+        current_export_ready_ = false;
         return *this;
       }
 
@@ -1632,15 +1699,21 @@ namespace omni {
       }
 
      private:
-      void update_current_export() noexcept {
+      void ensure_current_export() const noexcept {
+        if (current_export_ready_) {
+          return;
+        }
+
         if (!export_dir_view_.present() || index_ >= export_dir_view_.names_count()) {
           current_export_ = value_type{};
+          current_export_ready_ = true;
           return;
         }
 
         const auto function_index = export_dir_view_.function_index(index_);
         if (function_index == detail::export_directory_view::npos) {
           current_export_ = value_type{};
+          current_export_ready_ = true;
           return;
         }
 
@@ -1655,11 +1728,14 @@ namespace omni {
         if (export_dir_view_.is_forwarded(export_address)) {
           current_export_.forwarder_string = forwarder_string::parse(export_address.ptr<const char>());
         }
+
+        current_export_ready_ = true;
       }
 
       detail::export_directory_view export_dir_view_;
       std::size_t index_{0};
       mutable value_type current_export_{};
+      mutable bool current_export_ready_{false};
     };
 
     static_assert(std::bidirectional_iterator<iterator>);
@@ -1689,24 +1765,20 @@ namespace omni {
     }
 
    private:
-    template <typename Hash>
-    [[nodiscard]] iterator find_by_hashed_name(Hash export_name_hash) const noexcept {
+    template <typename Hasher>
+    [[nodiscard]] iterator find_by_hashed_name(Hasher export_name_hash) const noexcept {
       if (directory() == nullptr) {
         return end();
       }
 
       for (std::size_t i{}; i < size(); ++i) {
-        std::string_view export_name_str = export_dir_view_.name(i);
-        if (export_name_hash == omni::hash<Hash>(export_name_str)) {
+        const char* export_name = export_dir_view_.name(i);
+        if (export_name_hash == omni::hash<Hasher>(export_name)) {
           return {export_dir_view_, i};
         }
       }
 
       return end();
-    }
-
-    [[nodiscard]] omni::address module_base() const noexcept {
-      return export_dir_view_.module_base();
     }
 
     detail::export_directory_view export_dir_view_;
@@ -4091,213 +4163,8 @@ namespace omni {
 
 #include <expected>
 #include <system_error>
-#include <utility>
-
-#include <concepts>
-#include <cstddef>
-#include <cstdlib>
-#include <functional>
-#include <memory>
-#include <new>
 #include <type_traits>
 #include <utility>
-
-namespace omni::detail {
-
-  template <typename T, typename... Args>
-  class inplace_function;
-
-  template <typename T, typename... Args>
-  class inplace_function<T(Args...)> {
-   public:
-    using function_ptr_t = T (*)(void*, Args&&...);
-    using copy_ptr_t = void (*)(void*, const void*);
-    using move_ptr_t = void (*)(void*, void*);
-    using destructor_ptr_t = void (*)(void*);
-
-    constexpr static std::size_t storage_size = 64;
-    constexpr static std::size_t storage_alignment = alignof(std::max_align_t);
-
-    inplace_function() = default;
-
-    template <typename F, typename DecayedFunction = std::decay_t<F>>
-      requires(!std::same_as<DecayedFunction, inplace_function> && std::is_invocable_r_v<T, DecayedFunction&, Args...> &&
-               std::is_copy_constructible_v<DecayedFunction>)
-    explicit(false) inplace_function(F&& function_object) {
-      emplace<DecayedFunction>(std::forward<F>(function_object));
-    }
-
-    inplace_function(const inplace_function& other) {
-      copy_from(other);
-    }
-
-    inplace_function(inplace_function&& other) { // NOLINT(*-noexcept-move*)
-      move_from(other);
-    }
-
-    inplace_function& operator=(const inplace_function& other) {
-      if (this == &other) {
-        return *this;
-      }
-
-      if (!other) {
-        reset();
-        return *this;
-      }
-
-      inplace_function temp(other);
-      reset();
-      move_from(temp);
-      return *this;
-    }
-
-    inplace_function& operator=(inplace_function&& other) { // NOLINT(*-noexcept-move*)
-      if (this == &other) {
-        return *this;
-      }
-
-      reset();
-      move_from(other);
-      return *this;
-    }
-
-    ~inplace_function() {
-      reset();
-    }
-
-    void swap(inplace_function& other) { // NOLINT(*-noexcept-swap)
-      if (this == &other) {
-        return;
-      }
-
-      inplace_function temp;
-      temp.move_from(*this);
-      move_from(other);
-      other.move_from(temp);
-    }
-
-    [[nodiscard]] explicit operator bool() const noexcept {
-      return invoker_ != nullptr;
-    }
-
-    T operator()(Args... args) {
-      return invoke(std::forward<Args>(args)...);
-    }
-
-    T operator()(Args... args) const {
-      return invoke(std::forward<Args>(args)...);
-    }
-
-   private:
-    template <typename F>
-    static F* storage_as(void* ptr) noexcept {
-      return std::launder(reinterpret_cast<F*>(ptr));
-    }
-
-    template <typename F>
-    static const F* storage_as(const void* ptr) noexcept {
-      return std::launder(reinterpret_cast<const F*>(ptr));
-    }
-
-    [[nodiscard]] void* storage_ptr() noexcept {
-      return static_cast<void*>(storage_);
-    }
-
-    [[nodiscard]] const void* storage_ptr() const noexcept {
-      return static_cast<const void*>(storage_);
-    }
-
-    template <typename... CallArgs>
-    [[nodiscard]] T invoke(CallArgs&&... args) const {
-      if (invoker_ == nullptr) {
-#ifdef OMNI_HAS_EXCEPTIONS
-        throw std::bad_function_call();
-#else
-        std::abort();
-#endif
-      }
-
-      return invoker_(const_cast<void*>(storage_ptr()), std::forward<CallArgs>(args)...);
-    }
-
-    template <typename F, typename... CtorArgs>
-    void emplace(CtorArgs&&... args) {
-      static_assert(sizeof(F) <= storage_size, "Function object too large");
-      static_assert(alignof(F) <= storage_alignment, "Function object alignment too large");
-
-      new (storage_ptr()) F(std::forward<CtorArgs>(args)...);
-
-      invoker_ = [](void* ptr, Args&&... args) -> T {
-        return std::invoke(*storage_as<F>(ptr), std::forward<Args>(args)...);
-      };
-
-      copier_ = [](void* destination, const void* source) {
-        new (destination) F(*storage_as<F>(source));
-      };
-
-      mover_ = [](void* destination, void* source) {
-        if constexpr (std::is_move_constructible_v<F>) {
-          new (destination) F(std::move(*storage_as<F>(source)));
-        } else {
-          new (destination) F(*storage_as<F>(source));
-        }
-
-        std::destroy_at(storage_as<F>(source));
-      };
-
-      destroyer_ = [](void* ptr) {
-        std::destroy_at(storage_as<F>(ptr));
-      };
-    }
-
-    void copy_from(const inplace_function& other) {
-      if (!other) {
-        return;
-      }
-
-      other.copier_(storage_ptr(), other.storage_ptr());
-      invoker_ = other.invoker_;
-      copier_ = other.copier_;
-      mover_ = other.mover_;
-      destroyer_ = other.destroyer_;
-    }
-
-    void move_from(inplace_function& other) {
-      if (!other) {
-        return;
-      }
-
-      other.mover_(storage_ptr(), other.storage_ptr());
-      invoker_ = other.invoker_;
-      copier_ = other.copier_;
-      mover_ = other.mover_;
-      destroyer_ = other.destroyer_;
-      other.clear();
-    }
-
-    void reset() {
-      if (destroyer_ != nullptr) {
-        destroyer_(storage_ptr());
-      }
-
-      clear();
-    }
-
-    void clear() noexcept {
-      invoker_ = nullptr;
-      copier_ = nullptr;
-      mover_ = nullptr;
-      destroyer_ = nullptr;
-    }
-
-    alignas(storage_alignment) std::byte storage_[storage_size]{};
-    function_ptr_t invoker_{nullptr};
-    copy_ptr_t copier_{nullptr};
-    move_ptr_t mover_{nullptr};
-    destructor_ptr_t destroyer_{nullptr};
-  };
-
-} // namespace omni::detail
 
 #include <array>
 #include <cstring>
@@ -4375,7 +4242,446 @@ namespace omni::detail {
 
 } // namespace omni::detail
 
+#ifdef OMNI_HAS_INLINE_SYSCALL
+/*
+ * Copyright 2018-2020 Justas Masiulis
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#  include <cstdint>
+
+#  ifdef OMNI_HAS_INLINE_SYSCALL
+
+// NOLINTBEGIN(cppcoreguidelines-init-variables)
+
+namespace omni::detail {
+
+  // Disables register keyword deprecation warnings
+#    pragma GCC diagnostic push
+#    pragma GCC diagnostic ignored "-Wregister"
+
+  // Syscall stubs begin here.
+  // They all seem more or less the same and that's true, however
+  // we need them like this for best possible code generation.
+
+  OMNI_FORCEINLINE std::int32_t syscall(std::uint32_t id) noexcept {
+    register void* a1 asm("r10");
+    void* a2;
+    register void* a3 asm("r8");
+    register void* a4 asm("r9");
+
+    void* unused_output;
+    register void* unused_output2 asm("r11");
+
+    std::int32_t status;
+    asm volatile("syscall\n"
+      : "=a"(status), "=r"(a1), "=d"(a2), "=r"(a3), "=r"(a4), "=c"(unused_output), "=r"(unused_output2)
+      : "a"(id)
+      : "memory", "cc");
+    return status;
+  }
+
+  template <class T1>
+  OMNI_FORCEINLINE std::int32_t syscall(std::uint32_t id, T1 _1) noexcept {
+    register auto a1 asm("r10") = _1;
+    void* a2;
+    register void* a3 asm("r8");
+    register void* a4 asm("r9");
+
+    void* unused_output;
+    register void* unused_output2 asm("r11");
+
+    std::int32_t status;
+    asm volatile("syscall\n"
+      : "=a"(status), "=r"(a1), "=d"(a2), "=r"(a3), "=r"(a4), "=c"(unused_output), "=r"(unused_output2)
+      : "a"(id), "r"(a1)
+      : "memory", "cc");
+    return status;
+  }
+
+  template <class T1, class T2>
+  OMNI_FORCEINLINE std::int32_t syscall(std::uint32_t id, T1 _1, T2 _2) noexcept {
+    register auto a1 asm("r10") = _1;
+    register void* a3 asm("r8");
+    register void* a4 asm("r9");
+
+    void* unused_output;
+    register void* unused_output2 asm("r11");
+
+    std::int32_t status;
+    asm volatile("syscall\n"
+      : "=a"(status), "=r"(a1), "=d"(_2), "=r"(a3), "=r"(a4), "=c"(unused_output), "=r"(unused_output2)
+      : "a"(id), "r"(a1), "d"(_2)
+      : "memory", "cc");
+    return status;
+  }
+
+  template <class T1, class T2, class T3>
+  OMNI_FORCEINLINE std::int32_t syscall(std::uint32_t id, T1 _1, T2 _2, T3 _3) noexcept {
+    register auto a1 asm("r10") = _1;
+    register auto a3 asm("r8") = _3;
+    register void* a4 asm("r9");
+
+    void* unused_output;
+    register void* unused_output2 asm("r11");
+
+    std::int32_t status;
+    asm volatile("syscall\n"
+      : "=a"(status), "=r"(a1), "=d"(_2), "=r"(a3), "=r"(a4), "=c"(unused_output), "=r"(unused_output2)
+      : "a"(id), "r"(a1), "d"(_2), "r"(a3)
+      : "memory", "cc");
+    return status;
+  }
+
+  template <class T1, class T2, class T3, class T4>
+  OMNI_FORCEINLINE std::int32_t syscall(std::uint32_t id, T1 _1, T2 _2, T3 _3, T4 _4) noexcept {
+    register auto a1 asm("r10") = _1;
+    register auto a3 asm("r8") = _3;
+    register auto a4 asm("r9") = _4;
+
+    void* unused_output;
+    register void* unused_output2 asm("r11");
+
+    std::int32_t status;
+    asm volatile("syscall\n"
+      : "=a"(status), "=r"(a1), "=d"(_2), "=r"(a3), "=r"(a4), "=c"(unused_output), "=r"(unused_output2)
+      : "a"(id), "r"(a1), "d"(_2), "r"(a3), "r"(a4)
+      : "memory", "cc");
+    return status;
+  }
+
+  template <class T1, class T2, class T3, class T4, class T5>
+  OMNI_FORCEINLINE std::int32_t syscall(std::uint32_t id, T1 _1, T2 _2, T3 _3, T4 _4, T5 _5) noexcept {
+    register auto a1 asm("r10") = _1;
+    register auto a3 asm("r8") = _3;
+    register auto a4 asm("r9") = _4;
+
+    void* unused_output;
+    register void* unused_output2 asm("r11");
+
+    std::int32_t status;
+    asm volatile("sub $48, %%rsp\n"
+                 "movq %[a5], 40(%%rsp)\n"
+                 "syscall\n"
+                 "add $48, %%rsp"
+      : "=a"(status), "=r"(a1), "=d"(_2), "=r"(a3), "=r"(a4), "=c"(unused_output), "=r"(unused_output2)
+      : "a"(id), "r"(a1), "d"(_2), "r"(a3), "r"(a4), [a5] "re"(reinterpret_cast<void*>(_5))
+      : "cc");
+    return status;
+  }
+
+  template <class T1, class T2, class T3, class T4, class T5, class T6>
+  OMNI_FORCEINLINE std::int32_t syscall(std::uint32_t id, T1 _1, T2 _2, T3 _3, T4 _4, T5 _5, T6 _6) noexcept {
+    register auto a1 asm("r10") = _1;
+    register auto a3 asm("r8") = _3;
+    register auto a4 asm("r9") = _4;
+
+    void* unused_output;
+    register void* unused_output2 asm("r11");
+
+    std::int32_t status;
+    asm volatile("sub $64, %%rsp\n"
+                 "movq %[a5], 40(%%rsp)\n"
+                 "movq %[a6], 48(%%rsp)\n"
+                 "syscall\n"
+                 "add $64, %%rsp"
+      : "=a"(status), "=r"(a1), "=d"(_2), "=r"(a3), "=r"(a4), "=c"(unused_output), "=r"(unused_output2)
+      : "a"(id),
+      "r"(a1),
+      "d"(_2),
+      "r"(a3),
+      "r"(a4),
+      [a5] "re"(reinterpret_cast<void*>(_5)),
+      [a6] "re"(reinterpret_cast<void*>(_6))
+      : "memory", "cc");
+    return status;
+  }
+
+  template <class T1, class T2, class T3, class T4, class T5, class T6, class T7>
+  OMNI_FORCEINLINE std::int32_t syscall(std::uint32_t id, T1 _1, T2 _2, T3 _3, T4 _4, T5 _5, T6 _6, T7 _7) noexcept {
+    register auto a1 asm("r10") = _1;
+    register auto a3 asm("r8") = _3;
+    register auto a4 asm("r9") = _4;
+
+    void* unused_output;
+    register void* unused_output2 asm("r11");
+
+    std::int32_t status;
+    asm volatile("sub $64, %%rsp\n"
+                 "movq %[a5], 40(%%rsp)\n"
+                 "movq %[a6], 48(%%rsp)\n"
+                 "movq %[a7], 56(%%rsp)\n"
+                 "syscall\n"
+                 "add $64, %%rsp"
+      : "=a"(status), "=r"(a1), "=d"(_2), "=r"(a3), "=r"(a4), "=c"(unused_output), "=r"(unused_output2)
+      : "a"(id),
+      "r"(a1),
+      "d"(_2),
+      "r"(a3),
+      "r"(a4),
+      [a5] "re"(reinterpret_cast<void*>(_5)),
+      [a6] "re"(reinterpret_cast<void*>(_6)),
+      [a7] "re"(reinterpret_cast<void*>(_7))
+      : "memory", "cc");
+    return status;
+  }
+
+  template <class T1, class T2, class T3, class T4, class T5, class T6, class T7, class T8>
+  OMNI_FORCEINLINE std::int32_t syscall(std::uint32_t id, T1 _1, T2 _2, T3 _3, T4 _4, T5 _5, T6 _6, T7 _7, T8 _8) noexcept {
+    register auto a1 asm("r10") = _1;
+    register auto a3 asm("r8") = _3;
+    register auto a4 asm("r9") = _4;
+
+    void* unused_output;
+    register void* unused_output2 asm("r11");
+
+    std::int32_t status;
+    asm volatile("sub $80, %%rsp\n"
+                 "movq %[a5], 40(%%rsp)\n"
+                 "movq %[a6], 48(%%rsp)\n"
+                 "movq %[a7], 56(%%rsp)\n"
+                 "movq %[a8], 64(%%rsp)\n"
+                 "syscall\n"
+                 "add $80, %%rsp"
+      : "=a"(status), "=r"(a1), "=d"(_2), "=r"(a3), "=r"(a4), "=c"(unused_output), "=r"(unused_output2)
+      : "a"(id),
+      "r"(a1),
+      "d"(_2),
+      "r"(a3),
+      "r"(a4),
+      [a5] "re"(reinterpret_cast<void*>(_5)),
+      [a6] "re"(reinterpret_cast<void*>(_6)),
+      [a7] "re"(reinterpret_cast<void*>(_7)),
+      [a8] "re"(reinterpret_cast<void*>(_8))
+      : "memory", "cc");
+    return status;
+  }
+
+  template <class T1, class T2, class T3, class T4, class T5, class T6, class T7, class T8, class T9>
+  OMNI_FORCEINLINE std::int32_t syscall(std::uint32_t id, T1 _1, T2 _2, T3 _3, T4 _4, T5 _5, T6 _6, T7 _7, T8 _8,
+    T9 _9) noexcept {
+    register auto a1 asm("r10") = _1;
+    register auto a3 asm("r8") = _3;
+    register auto a4 asm("r9") = _4;
+
+    void* unused_output;
+    register void* unused_output2 asm("r11");
+
+    std::int32_t status;
+    asm volatile("sub $80, %%rsp\n"
+                 "movq %[a5], 40(%%rsp)\n"
+                 "movq %[a6], 48(%%rsp)\n"
+                 "movq %[a7], 56(%%rsp)\n"
+                 "movq %[a8], 64(%%rsp)\n"
+                 "movq %[a9], 72(%%rsp)\n"
+                 "syscall\n"
+                 "add $80, %%rsp"
+      : "=a"(status), "=r"(a1), "=d"(_2), "=r"(a3), "=r"(a4), "=c"(unused_output), "=r"(unused_output2)
+      : "a"(id),
+      "r"(a1),
+      "d"(_2),
+      "r"(a3),
+      "r"(a4),
+      [a5] "re"(reinterpret_cast<void*>(_5)),
+      [a6] "re"(reinterpret_cast<void*>(_6)),
+      [a7] "re"(reinterpret_cast<void*>(_7)),
+      [a8] "re"(reinterpret_cast<void*>(_8)),
+      [a9] "re"(reinterpret_cast<void*>(_9))
+      : "memory", "cc");
+    return status;
+  }
+
+  template <class T1, class T2, class T3, class T4, class T5, class T6, class T7, class T8, class T9, class T10>
+  OMNI_FORCEINLINE std::int32_t syscall(std::uint32_t id, T1 _1, T2 _2, T3 _3, T4 _4, T5 _5, T6 _6, T7 _7, T8 _8, T9 _9,
+    T10 _10) noexcept {
+    register auto a1 asm("r10") = _1;
+    register auto a3 asm("r8") = _3;
+    register auto a4 asm("r9") = _4;
+
+    void* unused_output;
+    register void* unused_output2 asm("r11");
+
+    std::int32_t status;
+    asm volatile("sub $96, %%rsp\n"
+                 "movq %[a5], 40(%%rsp)\n"
+                 "movq %[a6], 48(%%rsp)\n"
+                 "movq %[a7], 56(%%rsp)\n"
+                 "movq %[a8], 64(%%rsp)\n"
+                 "movq %[a9], 72(%%rsp)\n"
+                 "movq %[a10], 80(%%rsp)\n"
+                 "syscall\n"
+                 "add $96, %%rsp"
+      : "=a"(status), "=r"(a1), "=d"(_2), "=r"(a3), "=r"(a4), "=c"(unused_output), "=r"(unused_output2)
+      : "a"(id),
+      "r"(a1),
+      "d"(_2),
+      "r"(a3),
+      "r"(a4),
+      [a5] "re"(reinterpret_cast<void*>(_5)),
+      [a6] "re"(reinterpret_cast<void*>(_6)),
+      [a7] "re"(reinterpret_cast<void*>(_7)),
+      [a8] "re"(reinterpret_cast<void*>(_8)),
+      [a9] "re"(reinterpret_cast<void*>(_9)),
+      [a10] "re"(reinterpret_cast<void*>(_10))
+      : "memory", "cc");
+    return status;
+  }
+
+  template <class T1, class T2, class T3, class T4, class T5, class T6, class T7, class T8, class T9, class T10, class T11>
+  OMNI_FORCEINLINE std::int32_t syscall(std::uint32_t id, T1 _1, T2 _2, T3 _3, T4 _4, T5 _5, T6 _6, T7 _7, T8 _8, T9 _9,
+    T10 _10, T11 _11) noexcept {
+    register auto a1 asm("r10") = _1;
+    register auto a3 asm("r8") = _3;
+    register auto a4 asm("r9") = _4;
+
+    void* unused_output;
+    register void* unused_output2 asm("r11");
+
+    std::int32_t status;
+    asm volatile("sub $96, %%rsp\n"
+                 "movq %[a5], 40(%%rsp)\n"
+                 "movq %[a6], 48(%%rsp)\n"
+                 "movq %[a7], 56(%%rsp)\n"
+                 "movq %[a8], 64(%%rsp)\n"
+                 "movq %[a9], 72(%%rsp)\n"
+                 "movq %[a10], 80(%%rsp)\n"
+                 "movq %[a11], 88(%%rsp)\n"
+                 "syscall\n"
+                 "add $96, %%rsp"
+      : "=a"(status), "=r"(a1), "=d"(_2), "=r"(a3), "=r"(a4), "=c"(unused_output), "=r"(unused_output2)
+      : "a"(id),
+      "r"(a1),
+      "d"(_2),
+      "r"(a3),
+      "r"(a4),
+      [a5] "re"(reinterpret_cast<void*>(_5)),
+      [a6] "re"(reinterpret_cast<void*>(_6)),
+      [a7] "re"(reinterpret_cast<void*>(_7)),
+      [a8] "re"(reinterpret_cast<void*>(_8)),
+      [a9] "re"(reinterpret_cast<void*>(_9)),
+      [a10] "re"(reinterpret_cast<void*>(_10)),
+      [a11] "re"(reinterpret_cast<void*>(_11))
+      : "memory", "cc");
+    return status;
+  }
+
+  template <class T1, class T2, class T3, class T4, class T5, class T6, class T7, class T8, class T9, class T10, class T11,
+    class T12>
+  OMNI_FORCEINLINE std::int32_t syscall(std::uint32_t id, T1 _1, T2 _2, T3 _3, T4 _4, T5 _5, T6 _6, T7 _7, T8 _8, T9 _9,
+    T10 _10, T11 _11, T12 _12) noexcept {
+    register auto a1 asm("r10") = _1;
+    register auto a3 asm("r8") = _3;
+    register auto a4 asm("r9") = _4;
+
+    void* unused_output;
+    register void* unused_output2 asm("r11");
+
+    std::int32_t status;
+    asm volatile("sub $112, %%rsp\n"
+                 "movq %[a5], 40(%%rsp)\n"
+                 "movq %[a6], 48(%%rsp)\n"
+                 "movq %[a7], 56(%%rsp)\n"
+                 "movq %[a8], 64(%%rsp)\n"
+                 "movq %[a9], 72(%%rsp)\n"
+                 "movq %[a10], 80(%%rsp)\n"
+                 "movq %[a11], 88(%%rsp)\n"
+                 "movq %[a12], 96(%%rsp)\n"
+                 "syscall\n"
+                 "add $112, %%rsp"
+      : "=a"(status), "=r"(a1), "=d"(_2), "=r"(a3), "=r"(a4), "=c"(unused_output), "=r"(unused_output2)
+      : "a"(id),
+      "r"(a1),
+      "d"(_2),
+      "r"(a3),
+      "r"(a4),
+      [a5] "re"(reinterpret_cast<void*>(_5)),
+      [a6] "re"(reinterpret_cast<void*>(_6)),
+      [a7] "re"(reinterpret_cast<void*>(_7)),
+      [a8] "re"(reinterpret_cast<void*>(_8)),
+      [a9] "re"(reinterpret_cast<void*>(_9)),
+      [a10] "re"(reinterpret_cast<void*>(_10)),
+      [a11] "re"(reinterpret_cast<void*>(_11)),
+      [a12] "re"(reinterpret_cast<void*>(_12))
+      : "memory", "cc");
+    return status;
+  }
+
+  template <class T1, class T2, class T3, class T4, class T5, class T6, class T7, class T8, class T9, class T10, class T11,
+    class T12, class T13>
+  OMNI_FORCEINLINE std::int32_t syscall(std::uint32_t id, T1 _1, T2 _2, T3 _3, T4 _4, T5 _5, T6 _6, T7 _7, T8 _8, T9 _9,
+    T10 _10, T11 _11, T12 _12, T13 _13) noexcept {
+    register auto a1 asm("r10") = _1;
+    register auto a3 asm("r8") = _3;
+    register auto a4 asm("r9") = _4;
+
+    void* unused_output;
+    register void* unused_output2 asm("r11");
+
+    std::int32_t status;
+    asm volatile("sub $112, %%rsp\n"
+                 "movq %[a5], 40(%%rsp)\n"
+                 "movq %[a6], 48(%%rsp)\n"
+                 "movq %[a7], 56(%%rsp)\n"
+                 "movq %[a8], 64(%%rsp)\n"
+                 "movq %[a9], 72(%%rsp)\n"
+                 "movq %[a10], 80(%%rsp)\n"
+                 "movq %[a11], 88(%%rsp)\n"
+                 "movq %[a12], 96(%%rsp)\n"
+                 "movq %[a13], 104(%%rsp)\n"
+                 "syscall\n"
+                 "add $112, %%rsp"
+      : "=a"(status), "=r"(a1), "=d"(_2), "=r"(a3), "=r"(a4), "=c"(unused_output), "=r"(unused_output2)
+      : "a"(id),
+      "r"(a1),
+      "d"(_2),
+      "r"(a3),
+      "r"(a4),
+      [a5] "re"(reinterpret_cast<void*>(_5)),
+      [a6] "re"(reinterpret_cast<void*>(_6)),
+      [a7] "re"(reinterpret_cast<void*>(_7)),
+      [a8] "re"(reinterpret_cast<void*>(_8)),
+      [a9] "re"(reinterpret_cast<void*>(_9)),
+      [a10] "re"(reinterpret_cast<void*>(_10)),
+      [a11] "re"(reinterpret_cast<void*>(_11)),
+      [a12] "re"(reinterpret_cast<void*>(_12)),
+      [a13] "re"(reinterpret_cast<void*>(_13))
+      : "memory", "cc");
+    return status;
+  }
+
+  // clang-format on
+
+#    pragma GCC diagnostic pop
+
+} // namespace omni::detail
+
+#  endif // OMNI_HAS_INLINE_SYSCALL
+
+// NOLINTEND(cppcoreguidelines-init-variables)
+
+#endif
+
 namespace omni {
+
+  namespace concepts {
+    template <typename Parser>
+    concept syscall_id_parser =
+      std::invocable<Parser, const omni::named_export&> &&
+      std::same_as<std::invoke_result_t<Parser, const omni::named_export&>, std::expected<std::uint32_t, std::error_code>>;
+
+    template <typename Invoker, typename... Args> concept syscall_invoker = std::invocable<Invoker, std::uint32_t, Args&&...>;
+  } // namespace concepts
 
   namespace detail {
 #ifdef OMNI_HAS_CACHING
@@ -4384,41 +4690,85 @@ namespace omni {
 #endif
   } // namespace detail
 
-  // Syscall ID is at an offset of 4 bytes from the specified address.
-  // Not considering the situation when EDR hook is installed
-  // Learn more here: https://github.com/annihilatorq/shadow_syscall/issues/1
-  inline std::expected<std::uint32_t, std::error_code> default_syscall_id_parser(const omni::named_export& module_export) {
-    auto* address = module_export.address.ptr<std::uint8_t>();
+  struct default_syscall_id_parser {
+    // Syscall ID is at an offset of 4 bytes from the specified address.
+    // Not considering the situation when EDR hook is installed
+    // Learn more here: https://github.com/annihilatorq/shadow_syscall/issues/1
+    std::expected<std::uint32_t, std::error_code> operator()(const omni::named_export& module_export) const {
+      auto* address = module_export.address.ptr<std::uint8_t>();
 
-    for (std::size_t i{}; i < 24; ++i) {
-      if (address[i] == 0x4c && address[i + 1] == 0x8b && address[i + 2] == 0xd1 && address[i + 3] == 0xb8 &&
-          address[i + 6] == 0x00 && address[i + 7] == 0x00) {
-        return *reinterpret_cast<std::uint32_t*>(&address[i + 4]);
+      for (std::size_t i{}; i < 24; ++i) {
+        if (address[i] == 0x4c && address[i + 1] == 0x8b && address[i + 2] == 0xd1 && address[i + 3] == 0xb8 &&
+            address[i + 6] == 0x00 && address[i + 7] == 0x00) {
+          return *reinterpret_cast<std::uint32_t*>(&address[i + 4]);
+        }
+      }
+
+      return std::unexpected(omni::error::syscall_id_not_found);
+    }
+  };
+
+  static_assert(concepts::syscall_id_parser<default_syscall_id_parser>);
+
+  struct shellcode_syscall_invoker {
+    bool shellcode_initialized{false};
+    detail::shellcode<13> shellcode{{0x49, 0x89, 0xCA, 0x48, 0xC7, 0xC0, 0x3F, 0x10, 0x00, 0x00, 0x0F, 0x05, 0xC3}};
+
+    template <typename T = omni::status, typename... Args>
+    T operator()(std::uint32_t syscall_id, Args&&... args) {
+      if (!shellcode_initialized) {
+        shellcode.write<std::uint32_t>(6, syscall_id);
+        shellcode.setup();
+        shellcode_initialized = true;
+      }
+
+      if constexpr (std::is_void_v<T>) {
+        shellcode.execute(std::forward<Args>(args)...);
+      } else {
+        return shellcode.execute<T>(std::forward<Args>(args)...);
       }
     }
+  };
 
-    return std::unexpected(omni::error::syscall_id_not_found);
-  }
+  static_assert(concepts::syscall_invoker<shellcode_syscall_invoker, omni::status>);
 
-  template <typename T = omni::status>
+#ifdef OMNI_HAS_INLINE_SYSCALL
+  struct inline_syscall_invoker {
+    template <typename T = omni::status, typename... Args>
+    T operator()(std::uint32_t syscall_id, Args&&... args) {
+      if constexpr (std::is_void_v<T>) {
+        detail::syscall(syscall_id, std::forward<Args>(args)...);
+      } else {
+        return T{detail::syscall(syscall_id, std::forward<Args>(args)...)};
+      }
+    }
+  };
+
+  static_assert(concepts::syscall_invoker<inline_syscall_invoker, omni::status>);
+#endif
+
+  template <concepts::syscall_id_parser Parser = default_syscall_id_parser,
+    concepts::syscall_invoker Invoker = shellcode_syscall_invoker>
+  struct syscaller_options {
+    OMNI_NO_UNIQUE_ADDRESS Parser parser;
+    OMNI_NO_UNIQUE_ADDRESS Invoker invoker;
+  };
+
+  using default_syscaller_options = syscaller_options<default_syscall_id_parser, shellcode_syscall_invoker>;
+
+#ifdef OMNI_HAS_INLINE_SYSCALL
+  using inline_syscaller_options = syscaller_options<default_syscall_id_parser, inline_syscall_invoker>;
+#endif
+
+  template <typename T = omni::status, typename Options = default_syscaller_options>
     requires(omni::detail::is_x64)
   class syscaller {
    public:
-    using syscall_id_parser = detail::inplace_function<std::expected<std::uint32_t, std::error_code>(omni::named_export)>;
+    explicit syscaller(concepts::hash auto export_name, Options options = {})
+      : options_(std::move(options)), syscall_id_(resolve_syscall_id(export_name)) {}
 
-    explicit syscaller(concepts::hash auto export_name, syscall_id_parser parser = default_syscall_id_parser)
-      : syscall_id_parser_(std::move(parser)), syscall_id_(resolve_syscall_id(export_name)) {
-      if (syscall_id_) {
-        setup_shellcode(*syscall_id_);
-      }
-    }
-
-    explicit syscaller(default_hash export_name, syscall_id_parser parser = default_syscall_id_parser)
-      : syscall_id_parser_(std::move(parser)), syscall_id_(resolve_syscall_id(export_name)) {
-      if (syscall_id_) {
-        setup_shellcode(*syscall_id_);
-      }
-    }
+    explicit syscaller(default_hash export_name, Options options = {})
+      : options_(std::move(options)), syscall_id_(resolve_syscall_id(export_name)) {}
 
     template <typename... Args>
     std::expected<T, std::error_code> try_invoke(Args&&... args) {
@@ -4426,10 +4776,12 @@ namespace omni {
         return std::unexpected(syscall_id_.error());
       }
       if constexpr (std::is_void_v<T>) {
-        shellcode_.execute(detail::normalize_pointer_argument(args)...);
+        options_.invoker.template operator()<void>(*syscall_id_,
+          detail::normalize_pointer_argument(std::forward<Args>(args))...);
         return {};
       } else {
-        return shellcode_.execute<T>(detail::normalize_pointer_argument(args)...);
+        return options_.invoker.template operator()<T>(*syscall_id_,
+          detail::normalize_pointer_argument(std::forward<Args>(args))...);
       }
     }
 
@@ -4448,11 +4800,6 @@ namespace omni {
     }
 
    private:
-    void setup_shellcode(std::uint32_t syscall_id) {
-      shellcode_.write<std::uint32_t>(6, syscall_id);
-      shellcode_.setup();
-    }
-
     std::expected<std::uint32_t, std::error_code> resolve_syscall_id(concepts::hash auto export_name) {
 #ifdef OMNI_HAS_CACHING
       auto cached_syscall_id = detail::syscall_id_cache.try_get(export_name.value());
@@ -4465,7 +4812,7 @@ namespace omni {
         return std::unexpected(omni::error::export_not_found);
       }
 
-      auto parsed_syscall_id = syscall_id_parser_(named_export);
+      auto parsed_syscall_id = options_.parser(named_export);
       if (!parsed_syscall_id) {
         return std::unexpected(parsed_syscall_id.error());
       }
@@ -4477,10 +4824,8 @@ namespace omni {
       return *parsed_syscall_id;
     }
 
-    syscall_id_parser syscall_id_parser_;
+    OMNI_NO_UNIQUE_ADDRESS Options options_;
     std::expected<std::uint32_t, std::error_code> syscall_id_;
-
-    detail::shellcode<13> shellcode_{{0x49, 0x89, 0xCA, 0x48, 0xC7, 0xC0, 0x3F, 0x10, 0x00, 0x00, 0x0F, 0x05, 0xC3}};
   };
 
   template <typename T, typename... Params>
@@ -4501,6 +4846,32 @@ namespace omni {
       return syscaller<T>::invoke(args...);
     }
   };
+
+  template <typename Result, typename Options, typename... Params>
+    requires(omni::detail::is_x64)
+  class syscaller<Result (*)(Params...), Options> : public syscaller<Result, Options> {
+   public:
+    using base_type = syscaller<Result, Options>;
+    using base_type::base_type;
+
+    std::expected<Result, std::error_code> try_invoke(Params... args) {
+      return base_type::try_invoke(std::forward<Params>(args)...);
+    }
+
+    Result invoke(Params... args) {
+      return base_type::invoke(std::forward<Params>(args)...);
+    }
+
+    Result operator()(Params... args) {
+      return base_type::invoke(std::forward<Params>(args)...);
+    }
+  };
+
+#ifdef OMNI_HAS_INLINE_SYSCALL
+  template <typename T = omni::status>
+    requires(omni::detail::is_x64)
+  using inline_syscaller = syscaller<T, inline_syscaller_options>;
+#endif
 
   template <typename T = omni::status, concepts::hash Hasher, typename... Args>
     requires(!concepts::function_pointer<T>)
@@ -4534,5 +4905,40 @@ namespace omni {
   inline auto syscall(default_hash export_name, Args&&... args) {
     return syscall<F, default_hash>(export_name, std::forward<Args>(args)...);
   }
+
+#ifdef OMNI_HAS_INLINE_SYSCALL
+  template <typename T = omni::status, concepts::hash Hasher, typename... Args>
+    requires(!concepts::function_pointer<T>)
+  inline T inline_syscall(Hasher export_name, Args&&... args) {
+    return inline_syscaller<T>{export_name}.invoke(std::forward<Args>(args)...);
+  }
+
+  template <typename T = omni::status, typename... Args>
+    requires(!concepts::function_pointer<T>)
+  inline T inline_syscall(default_hash export_name, Args&&... args) {
+    return inline_syscall<T, default_hash>(export_name, std::forward<Args>(args)...);
+  }
+
+  template <auto Func, concepts::hash Hasher, class... Args>
+  inline auto inline_syscall(Args&&... args) {
+    constexpr Hasher func_name{detail::extract_function_name<Func>()};
+    return inline_syscaller<decltype(Func)>{func_name}.invoke(std::forward<Args>(args)...);
+  }
+
+  template <auto Func, class... Args>
+  inline auto inline_syscall(Args&&... args) {
+    return inline_syscall<Func, default_hash>(std::forward<Args>(args)...);
+  }
+
+  template <concepts::function_pointer F, concepts::hash Hasher, class... Args>
+  inline auto inline_syscall(Hasher export_name, Args&&... args) {
+    return inline_syscaller<F>{export_name}.invoke(std::forward<Args>(args)...);
+  }
+
+  template <concepts::function_pointer F, class... Args>
+  inline auto inline_syscall(default_hash export_name, Args&&... args) {
+    return inline_syscall<F, default_hash>(export_name, std::forward<Args>(args)...);
+  }
+#endif
 
 } // namespace omni

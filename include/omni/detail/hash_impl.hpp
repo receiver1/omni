@@ -54,6 +54,32 @@ namespace omni::detail {
       return value;
     }
 
+    template <typename CharT>
+    [[nodiscard]] value_type operator()(const CharT* string) const noexcept {
+      constexpr auto alphabet_last_index = static_cast<value_type>('Z' - 'A');
+      T value{FNV_offset_basis};
+
+      for (;;) {
+        const auto ch = *string++;
+        if (ch == static_cast<CharT>('\0')) {
+          return value;
+        }
+
+        auto unsigned_ch = static_cast<value_type>(static_cast<std::make_unsigned_t<CharT>>(ch));
+
+        // Keep this as a simple range check and let the optimizer pick branch/cmov/setcc.
+        // Forcing branchless arithmetic lengthens the FNV loop-carried dependency chain
+        const bool is_uppercase = unsigned_ch - static_cast<value_type>('A') <= alphabet_last_index;
+        if (is_uppercase) {
+          unsigned_ch += 32U;
+        }
+
+        // Inlined FNV1A byte append
+        value ^= unsigned_ch;
+        value *= FNV_prime;
+      }
+    }
+
     [[nodiscard]] value_type value() const {
       return value_;
     }
